@@ -13,26 +13,38 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.cj.tapblok.nfc.NfcTagType
 import com.cj.tapblok.ui.theme.TapBlokTheme
 import java.io.IOException
 
@@ -55,48 +67,17 @@ class NfcWriteActivity : ComponentActivity() {
             return
         }
 
-        ndefMessage = createNdefMessage("work")
-
         setContent {
             TapBlokTheme {
+                var selectedType by remember { mutableStateOf<NfcTagType?>(null) }
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(120.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Nfc,
-                                contentDescription = null,
-                                modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(32.dp))
-                        Text(
-                            text = "Ready to Write",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Hold your NFC tag against the back of your phone.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(32.dp))
-                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    if (selectedType == null) {
+                        TagTypePicker(onSelect = {
+                            selectedType = it
+                            ndefMessage = createNdefMessage(it.payload)
+                        })
+                    } else {
+                        ReadyToWriteScreen(tagType = selectedType!!)
                     }
                 }
             }
@@ -154,5 +135,133 @@ class NfcWriteActivity : ComponentActivity() {
                 Toast.makeText(this, "Failed to write tag.", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun TagTypePicker(onSelect: (NfcTagType) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Choose tag type",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = "Pick how this tag behaves when scanned.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TagTypeCard(
+            icon = Icons.Default.SyncAlt,
+            title = "Start & Stop",
+            subtitle = "Toggles a session on or off. Hide this tag somewhere inconvenient.",
+            onClick = { onSelect(NfcTagType.Toggle) }
+        )
+        TagTypeCard(
+            icon = Icons.Default.PlayArrow,
+            title = "Start only",
+            subtitle = "Only starts a session — never stops one. Safe to keep handy.",
+            onClick = { onSelect(NfcTagType.StartOnly) }
+        )
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun TagTypeCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ReadyToWriteScreen(tagType: NfcTagType) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Nfc,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        Text(
+            text = "Ready to Write",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = when (tagType) {
+                NfcTagType.Toggle -> "Start & Stop tag"
+                NfcTagType.StartOnly -> "Start-only tag"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "Hold your NFC tag against the back of your phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        CircularProgressIndicator(modifier = Modifier.size(32.dp))
     }
 }

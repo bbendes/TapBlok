@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import com.cj.tapblok.nfc.NfcTagType
 
 class NfcHandlerActivity : ComponentActivity() {
 
@@ -34,18 +35,28 @@ class NfcHandlerActivity : ComponentActivity() {
                     return
                 }
 
-                Log.d("NfcHandlerActivity", "Valid TapBlok NFC tag detected.")
+                val tagType = NfcTagType.parse(String(record.payload, Charsets.UTF_8))
+                Log.d("NfcHandlerActivity", "Valid TapBlok NFC tag detected (type=$tagType).")
 
-                val serviceIntent = Intent(this, AppMonitoringService::class.java)
-
-                if (isServiceRunning(this, AppMonitoringService::class.java)) {
-                    // If the service is running, stop it.
-                    stopService(serviceIntent)
-                    Toast.makeText(this, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
-                } else {
-                    // If the service is not running, start it.
-                    startMonitoringService(this)
-                    Toast.makeText(this, "Monitoring started.", Toast.LENGTH_SHORT).show()
+                val running = isServiceRunning(this, AppMonitoringService::class.java)
+                when (tagType) {
+                    NfcTagType.StartOnly -> {
+                        if (running) {
+                            Toast.makeText(this, "Session already active.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            startMonitoringService(this)
+                            Toast.makeText(this, "Monitoring started.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    NfcTagType.Toggle -> {
+                        if (running) {
+                            stopService(Intent(this, AppMonitoringService::class.java))
+                            Toast.makeText(this, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            startMonitoringService(this)
+                            Toast.makeText(this, "Monitoring started.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
         }
