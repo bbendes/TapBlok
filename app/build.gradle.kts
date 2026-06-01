@@ -63,6 +63,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -90,6 +96,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.ktx)
+    androidTestImplementation(libs.androidx.room.testing)
     implementation(libs.zxing.core)
     implementation(libs.zxing.android.embedded)
 }

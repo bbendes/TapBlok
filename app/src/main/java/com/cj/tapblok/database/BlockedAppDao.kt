@@ -26,4 +26,10 @@ interface BlockedAppDao {
 
     @Query("SELECT * FROM blocked_apps")
     suspend fun getAllBlockedAppsList(): List<BlockedApp>
+
+    @Query("SELECT * FROM blocked_apps WHERE packageName = :packageName LIMIT 1")
+    suspend fun getByPackage(packageName: String): BlockedApp?
+
+    @Query("UPDATE blocked_apps SET groupId = :groupId WHERE packageName = :packageName")
+    suspend fun setGroup(packageName: String, groupId: Long?)
 }

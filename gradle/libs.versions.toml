@@ -12,7 +12,7 @@ appcompat = "1.6.1"
 activity = "1.8.0"
 lifecycleRuntimeCompose = "2.9.4"
 coilCompose = "2.7.0"
-room = "2.8.1"
+room = "2.7.2"
 zxingCore = "3.5.3"
 zxingAndroidEmbedded = "4.3.0"
 
@@ -39,6 +39,8 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+kotlinx-serialization-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-core", version = "1.8.1" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
 

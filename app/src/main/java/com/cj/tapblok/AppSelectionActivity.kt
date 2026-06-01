@@ -33,6 +33,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.cj.tapblok.database.AppGroup
+import com.cj.tapblok.database.AppGroupDao
 import com.cj.tapblok.database.BlockedApp
 import com.cj.tapblok.database.BlockedAppDao
 import com.cj.tapblok.ui.theme.TapBlokTheme
@@ -44,10 +46,15 @@ import kotlinx.coroutines.launch
 data class AppInfo(
     val appName: String,
     val packageName: String,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    val groupId: Long? = null
 )
 
-class AppSelectionViewModel(private val blockedAppDao: BlockedAppDao, private val application: Application) : ViewModel() {
+class AppSelectionViewModel(
+    private val blockedAppDao: BlockedAppDao,
+    private val appGroupDao: AppGroupDao,
+    private val application: Application
+) : ViewModel() {
 
     companion object {
         private val EXCLUDED_PACKAGES = setOf(
@@ -68,8 +75,12 @@ class AppSelectionViewModel(private val blockedAppDao: BlockedAppDao, private va
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps
 
+    private val _groups = MutableStateFlow<List<AppGroup>>(emptyList())
+    val groups: StateFlow<List<AppGroup>> = _groups
+
     init {
         loadInstalledApps()
+        loadGroups()
     }
 
     private fun loadInstalledApps() {
@@ -98,9 +109,18 @@ class AppSelectionViewModel(private val blockedAppDao: BlockedAppDao, private va
                 .sortedBy { it.appName.lowercase() }
 
             blockedAppDao.getAllBlockedApps().collect { blockedApps ->
-                val blockedAppPackages = blockedApps.map { it.packageName }.toSet()
-                _apps.value = baseAppList.map { it.copy(isSelected = blockedAppPackages.contains(it.packageName)) }
+                val blockedByPackage = blockedApps.associateBy { it.packageName }
+                _apps.value = baseAppList.map {
+                    val row = blockedByPackage[it.packageName]
+                    it.copy(isSelected = row != null, groupId = row?.groupId)
+                }
             }
+        }
+    }
+
+    private fun loadGroups() {
+        viewModelScope.launch(Dispatchers.IO) {
+            appGroupDao.getAll().collect { _groups.value = it }
         }
     }
 
@@ -111,6 +131,12 @@ class AppSelectionViewModel(private val blockedAppDao: BlockedAppDao, private va
             } else {
                 blockedAppDao.delete(BlockedApp(packageName = app.packageName))
             }
+        }
+    }
+
+    fun onAppGroupChanged(app: AppInfo, groupId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            blockedAppDao.setGroup(app.packageName, groupId)
         }
     }
 
@@ -128,12 +154,15 @@ class AppSelectionViewModel(private val blockedAppDao: BlockedAppDao, private va
     }
 }
 
-class AppSelectionViewModelFactory(private val application: Application, private val blockedAppDao: BlockedAppDao) :
-    ViewModelProvider.Factory {
+class AppSelectionViewModelFactory(
+    private val application: Application,
+    private val blockedAppDao: BlockedAppDao,
+    private val appGroupDao: AppGroupDao
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(AppSelectionViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return AppSelectionViewModel(blockedAppDao, application) as T
+            return AppSelectionViewModel(blockedAppDao, appGroupDao, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -143,7 +172,8 @@ class AppSelectionActivity : ComponentActivity() {
     private val viewModel: AppSelectionViewModel by viewModels {
         AppSelectionViewModelFactory(
             application,
-            (application as App).database.blockedAppDao()
+            (application as App).database.blockedAppDao(),
+            (application as App).database.appGroupDao()
         )
     }
 
@@ -153,6 +183,7 @@ class AppSelectionActivity : ComponentActivity() {
         setContent {
             TapBlokTheme {
                 val appList by viewModel.apps.collectAsState()
+                val groups by viewModel.groups.collectAsState()
                 Scaffold(
                     topBar = {
                         TopAppBar(
@@ -163,11 +194,16 @@ class AppSelectionActivity : ComponentActivity() {
                                 }
                             },
                             actions = {
+                                TextButton(onClick = {
+                                    startActivity(Intent(this@AppSelectionActivity, GroupsActivity::class.java))
+                                }) {
+                                    Text("Groups")
+                                }
                                 TextButton(onClick = { viewModel.selectAllApps() }) {
-                                    Text("Select All")
+                                    Text("All")
                                 }
                                 TextButton(onClick = { viewModel.unselectAllApps() }) {
-                                    Text("Unselect All")
+                                    Text("None")
                                 }
                             }
                         )
@@ -175,8 +211,12 @@ class AppSelectionActivity : ComponentActivity() {
                 ) { padding ->
                     AppSelectionScreen(
                         apps = appList,
+                        groups = groups,
                         onAppCheckedChange = { app, isSelected ->
                             viewModel.onAppSelectionChanged(app, isSelected)
+                        },
+                        onAppGroupChanged = { app, groupId ->
+                            viewModel.onAppGroupChanged(app, groupId)
                         },
                         modifier = Modifier.padding(padding)
                     )
@@ -189,7 +229,9 @@ class AppSelectionActivity : ComponentActivity() {
 @Composable
 fun AppSelectionScreen(
     apps: List<AppInfo>,
+    groups: List<AppGroup>,
     onAppCheckedChange: (AppInfo, Boolean) -> Unit,
+    onAppGroupChanged: (AppInfo, Long?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -210,50 +252,97 @@ fun AppSelectionScreen(
         items(apps, key = { it.packageName }) { app ->
             AppListItem(
                 app = app,
-                onCheckedChange = { isSelected ->
-                    onAppCheckedChange(app, isSelected)
-                },
+                groups = groups,
+                onCheckedChange = { isSelected -> onAppCheckedChange(app, isSelected) },
+                onGroupChanged = { groupId -> onAppGroupChanged(app, groupId) },
                 isEnabled = !isServiceRunning
             )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppListItem(
     app: AppInfo,
+    groups: List<AppGroup>,
     onCheckedChange: (Boolean) -> Unit,
+    onGroupChanged: (Long?) -> Unit,
     isEnabled: Boolean
 ) {
     val context = LocalContext.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    var groupMenuExpanded by remember { mutableStateOf(false) }
+    val currentGroup = groups.firstOrNull { it.id == app.groupId }
+    val groupLabel = currentGroup?.name ?: "No group"
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = isEnabled) { onCheckedChange(!app.isSelected) }
-            .padding(vertical = 8.dp, horizontal = 8.dp)
+            .padding(vertical = 4.dp, horizontal = 4.dp)
     ) {
-        Image(
-            painter = rememberAsyncImagePainter(
-                model = ImageRequest.Builder(context)
-                    .data(context.packageManager.getApplicationIcon(app.packageName))
-                    .build()
-            ),
-            contentDescription = "${app.appName} icon",
-            modifier = Modifier.size(48.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = app.appName,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Checkbox(
-            checked = app.isSelected,
-            onCheckedChange = onCheckedChange,
-            enabled = isEnabled
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = isEnabled) { onCheckedChange(!app.isSelected) }
+                .padding(vertical = 8.dp, horizontal = 8.dp)
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(
+                    model = ImageRequest.Builder(context)
+                        .data(context.packageManager.getApplicationIcon(app.packageName))
+                        .build()
+                ),
+                contentDescription = "${app.appName} icon",
+                modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = app.appName,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Checkbox(
+                checked = app.isSelected,
+                onCheckedChange = onCheckedChange,
+                enabled = isEnabled
+            )
+        }
+        if (app.isSelected) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 72.dp, bottom = 6.dp)
+            ) {
+                Box {
+                    AssistChip(
+                        onClick = { if (isEnabled) groupMenuExpanded = true },
+                        label = { Text(groupLabel) },
+                        enabled = isEnabled
+                    )
+                    DropdownMenu(
+                        expanded = groupMenuExpanded,
+                        onDismissRequest = { groupMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("No group") },
+                            onClick = {
+                                onGroupChanged(null)
+                                groupMenuExpanded = false
+                            }
+                        )
+                        groups.forEach { group ->
+                            DropdownMenuItem(
+                                text = { Text(group.name) },
+                                onClick = {
+                                    onGroupChanged(group.id)
+                                    groupMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
-
