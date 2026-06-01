@@ -26,18 +26,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val releaseStoreFilePath = localProps.getProperty("RELEASE_STORE_FILE", "")
+    val hasReleaseSigning = releaseStoreFilePath.isNotBlank()
+
     signingConfigs {
-        create("release") {
-            storeFile = file(localProps.getProperty("RELEASE_STORE_FILE", ""))
-            storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD", "")
-            keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS", "")
-            keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD", "")
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath)
+                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD", "")
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS", "")
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD", "")
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.settings.SessionSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -52,9 +53,10 @@ class AppMonitoringService : Service() {
         Log.d("AppMonitoringService", "Service has started.")
 
         prefs.edit {
-            putInt("breaks_remaining", 3)
+            putInt("breaks_remaining", SessionSettings.breakCount(this@AppMonitoringService))
             putInt("blocked_app_attempts", 0)
             putBoolean("monitoring_active", true)
+            putLong(SessionSettings.KEY_LAST_BREAK_ENDED_AT_MS, 0L)
         }
 
         val notificationIntent = Intent(this, MainActivity::class.java)
@@ -125,12 +127,14 @@ class AppMonitoringService : Service() {
         isBreakActive = true
         Log.d("AppMonitoringService", "Break started.")
 
-        breakTimer = object : CountDownTimer(300000, 1000) {
+        val durationMs = SessionSettings.breakDurationMs(this)
+        breakTimer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {
             }
 
             override fun onFinish() {
                 isBreakActive = false
+                SessionSettings.setLastBreakEndedAtMs(this@AppMonitoringService, System.currentTimeMillis())
                 Log.d("AppMonitoringService", "Break finished.")
             }
         }.start()
