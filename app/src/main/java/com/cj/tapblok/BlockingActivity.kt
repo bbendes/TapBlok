@@ -1,6 +1,5 @@
 package com.cj.tapblok
 
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
@@ -24,7 +23,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,17 +30,34 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.edit
 import coil.compose.rememberAsyncImagePainter
+import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.settings.GlobalBreakSettings
 import com.cj.tapblok.settings.SessionSettings
+import com.cj.tapblok.settings.resolveBreakSettings
 import com.cj.tapblok.ui.theme.TapBlokTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+private fun formatDuration(totalSec: Long): String {
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return when {
+        minutes > 0 && seconds > 0 -> "${minutes}m ${seconds}s"
+        minutes > 0 -> "${minutes}m"
+        else -> "${seconds}s"
+    }
+}
 
 class BlockingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val packageName = intent.getStringExtra("BLOCKED_APP_PACKAGE_NAME") ?: "An app"
+        val packageName = intent.getStringExtra(AppMonitoringService.EXTRA_BLOCKED_APP_PACKAGE_NAME) ?: "An app"
+        val groupId: Long? = if (intent.hasExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID)) {
+            intent.getLongExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID, -1L)
+        } else null
 
         val goHome = {
             val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -61,10 +76,14 @@ class BlockingActivity : ComponentActivity() {
             TapBlokTheme {
                 BlockingScreen(
                     packageName = packageName,
+                    groupId = groupId,
                     onGoHomeClick = goHome,
                     onTakeBreakClick = {
                         val breakIntent = Intent(this, AppMonitoringService::class.java).apply {
                             action = AppMonitoringService.ACTION_START_BREAK
+                            if (groupId != null) {
+                                putExtra(AppMonitoringService.EXTRA_BREAK_GROUP_ID, groupId)
+                            }
                         }
                         startService(breakIntent)
                         finish()
@@ -78,6 +97,7 @@ class BlockingActivity : ComponentActivity() {
 @Composable
 fun BlockingScreen(
     packageName: String,
+    groupId: Long?,
     onGoHomeClick: () -> Unit,
     onTakeBreakClick: () -> Unit
 ) {
@@ -85,13 +105,10 @@ fun BlockingScreen(
 
     var appName by remember { mutableStateOf(packageName) }
     var appIcon by remember { mutableStateOf<Drawable?>(null) }
-    var breaksRemaining by rememberSaveable { mutableStateOf(0) }
+    var breaksRemaining by remember { mutableStateOf(SessionSettings.breaksRemaining(context, groupId)) }
     var cooldownRemainingSec by remember { mutableStateOf(0L) }
 
     LaunchedEffect(key1 = Unit) {
-        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        breaksRemaining = prefs.getInt("breaks_remaining", 0)
-
         val pm = context.packageManager
         try {
             val appInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -107,12 +124,23 @@ fun BlockingScreen(
         }
     }
 
-    LaunchedEffect(key1 = Unit) {
-        val minBetweenMs = SessionSettings.minBetweenBreaksMs(context)
-        val lastEndedAtMs = SessionSettings.lastBreakEndedAtMs(context)
+    LaunchedEffect(key1 = groupId) {
+        val global = GlobalBreakSettings(
+            durationMs = SessionSettings.breakDurationMs(context),
+            count = SessionSettings.breakCount(context),
+            minBetweenMs = SessionSettings.minBetweenBreaksMs(context)
+        )
+        val group = if (groupId != null) {
+            withContext(Dispatchers.IO) {
+                AppDatabase.getDatabase(context).appGroupDao().getById(groupId)
+            }
+        } else null
+        val effective = resolveBreakSettings(group, global)
+        val lastEndedAtMs = SessionSettings.groupLastBreakEndedAtMs(context, groupId)
+
         while (true) {
             val now = System.currentTimeMillis()
-            val remainMs = SessionSettings.nextBreakAvailableInMs(now, lastEndedAtMs, minBetweenMs)
+            val remainMs = SessionSettings.nextBreakAvailableInMs(now, lastEndedAtMs, effective.minBetweenMs)
             cooldownRemainingSec = (remainMs + 999) / 1000
             if (remainMs == 0L) break
             delay(500)
@@ -196,15 +224,15 @@ fun BlockingScreen(
                 val cooldownActive = cooldownRemainingSec > 0
                 OutlinedButton(
                     onClick = {
-                        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                        prefs.edit { putInt("breaks_remaining", breaksRemaining - 1) }
+                        SessionSettings.setBreaksRemaining(context, groupId, breaksRemaining - 1)
+                        breaksRemaining -= 1
                         onTakeBreakClick()
                     },
                     enabled = !cooldownActive,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        if (cooldownActive) "Next break in ${cooldownRemainingSec}s"
+                        if (cooldownActive) "Next break in ${formatDuration(cooldownRemainingSec)}"
                         else "Take a Break ($breaksRemaining remaining)"
                     )
                 }
@@ -212,3 +240,4 @@ fun BlockingScreen(
         }
     }
 }
+
