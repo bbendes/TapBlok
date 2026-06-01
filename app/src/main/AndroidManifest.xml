@@ -82,6 +82,11 @@
             android:label="@string/title_activity_qr_code"
             android:theme="@style/Theme.TapBlok" />
         <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="@string/title_activity_settings"
+            android:theme="@style/Theme.TapBlok" />
+        <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="portrait"
             tools:replace="screenOrientation" />

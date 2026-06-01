@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
@@ -271,6 +272,12 @@ fun MainScreen() {
                                     cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                 }
                             }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        ActionRow(
+                            icon = Icons.Default.Settings,
+                            label = "Settings",
+                            onClick = { context.startActivity(Intent(context, SettingsActivity::class.java)) }
                         )
                     }
                 }

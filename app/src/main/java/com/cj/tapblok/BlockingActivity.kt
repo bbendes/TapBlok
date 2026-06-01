@@ -34,7 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import coil.compose.rememberAsyncImagePainter
+import com.cj.tapblok.settings.SessionSettings
 import com.cj.tapblok.ui.theme.TapBlokTheme
+import kotlinx.coroutines.delay
 
 class BlockingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,6 +86,7 @@ fun BlockingScreen(
     var appName by remember { mutableStateOf(packageName) }
     var appIcon by remember { mutableStateOf<Drawable?>(null) }
     var breaksRemaining by rememberSaveable { mutableStateOf(0) }
+    var cooldownRemainingSec by remember { mutableStateOf(0L) }
 
     LaunchedEffect(key1 = Unit) {
         val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
@@ -101,6 +104,18 @@ fun BlockingScreen(
             appIcon = pm.getApplicationIcon(appInfo)
         } catch (_: PackageManager.NameNotFoundException) {
             appName = packageName
+        }
+    }
+
+    LaunchedEffect(key1 = Unit) {
+        val minBetweenMs = SessionSettings.minBetweenBreaksMs(context)
+        val lastEndedAtMs = SessionSettings.lastBreakEndedAtMs(context)
+        while (true) {
+            val now = System.currentTimeMillis()
+            val remainMs = SessionSettings.nextBreakAvailableInMs(now, lastEndedAtMs, minBetweenMs)
+            cooldownRemainingSec = (remainMs + 999) / 1000
+            if (remainMs == 0L) break
+            delay(500)
         }
     }
 
@@ -178,15 +193,20 @@ fun BlockingScreen(
 
             if (breaksRemaining > 0) {
                 Spacer(modifier = Modifier.height(12.dp))
+                val cooldownActive = cooldownRemainingSec > 0
                 OutlinedButton(
                     onClick = {
                         val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                         prefs.edit { putInt("breaks_remaining", breaksRemaining - 1) }
                         onTakeBreakClick()
                     },
+                    enabled = !cooldownActive,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Take a Break ($breaksRemaining remaining)")
+                    Text(
+                        if (cooldownActive) "Next break in ${cooldownRemainingSec}s"
+                        else "Take a Break ($breaksRemaining remaining)"
+                    )
                 }
             }
         }
