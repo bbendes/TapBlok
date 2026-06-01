@@ -15,7 +15,13 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.database.GroupTimeRule
+import com.cj.tapblok.settings.GlobalBreakSettings
+import com.cj.tapblok.settings.ResolvedGroupSettings
 import com.cj.tapblok.settings.SessionSettings
+import com.cj.tapblok.settings.currentDayOfWeekBit
+import com.cj.tapblok.settings.currentMinuteOfDay
+import com.cj.tapblok.settings.resolveForGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -30,6 +36,7 @@ class AppMonitoringService : Service() {
     private lateinit var db: AppDatabase
     private lateinit var prefs: android.content.SharedPreferences
     @Volatile private var packageToGroupId: Map<String, Long?> = emptyMap()
+    @Volatile private var timeRulesByGroup: Map<Long, List<GroupTimeRule>> = emptyMap()
     @Volatile private var isBreakActive = false
     @Volatile private var currentBreakGroupId: Long? = null
     private var isMonitoring = false
@@ -100,6 +107,13 @@ class AppMonitoringService : Service() {
         }
 
         serviceScope.launch {
+            db.groupTimeRuleDao().observeAll().collect { rules ->
+                timeRulesByGroup = rules.groupBy { it.groupId }
+                if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Time rules updated: ${timeRulesByGroup.mapValues { it.value.size }}")
+            }
+        }
+
+        serviceScope.launch {
             val localContext = this@AppMonitoringService
 
             while (isActive) {
@@ -116,6 +130,11 @@ class AppMonitoringService : Service() {
 
                     if (foregroundApp != null && packageToGroupId.containsKey(foregroundApp) && foregroundApp != packageName) {
                         val groupId = packageToGroupId[foregroundApp]
+                        if (groupId != null && !effectiveSettings(groupId).blockingEnabled) {
+                            if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Skipping block for $foregroundApp: group=$groupId disabled by time rule.")
+                            delay(1000)
+                            continue
+                        }
                         val blockIntent = Intent(localContext, BlockingActivity::class.java).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             putExtra(EXTRA_BLOCKED_APP_PACKAGE_NAME, foregroundApp)
@@ -195,8 +214,41 @@ class AppMonitoringService : Service() {
     private suspend fun effectiveBreakDurationMs(groupId: Long?): Long {
         val global = SessionSettings.breakDurationMs(this)
         if (groupId == null) return global
-        val group = db.appGroupDao().getById(groupId) ?: return global
-        return group.breakDurationMs ?: global
+        val group = db.appGroupDao().getById(groupId)
+        val rules = timeRulesByGroup[groupId].orEmpty()
+        val now = System.currentTimeMillis()
+        return resolveForGroup(
+            group = group,
+            rules = rules,
+            nowDayOfWeekBit = currentDayOfWeekBit(now),
+            nowMinuteOfDay = currentMinuteOfDay(now),
+            global = GlobalBreakSettings(
+                durationMs = global,
+                count = SessionSettings.breakCount(this),
+                minBetweenMs = SessionSettings.minBetweenBreaksMs(this)
+            )
+        ).durationMs
+    }
+
+    /**
+     * Resolve settings for the polling loop's "should this app block right now?" decision.
+     * Only needs blockingEnabled; uses the cached rules and skips a DB lookup for the group
+     * (group static overrides don't affect blockingEnabled — that comes from rules alone).
+     */
+    private fun effectiveSettings(groupId: Long): ResolvedGroupSettings {
+        val rules = timeRulesByGroup[groupId].orEmpty()
+        val now = System.currentTimeMillis()
+        return resolveForGroup(
+            group = null,
+            rules = rules,
+            nowDayOfWeekBit = currentDayOfWeekBit(now),
+            nowMinuteOfDay = currentMinuteOfDay(now),
+            global = GlobalBreakSettings(
+                durationMs = SessionSettings.breakDurationMs(this),
+                count = SessionSettings.breakCount(this),
+                minBetweenMs = SessionSettings.minBetweenBreaksMs(this)
+            )
+        )
     }
 
     override fun onDestroy() {

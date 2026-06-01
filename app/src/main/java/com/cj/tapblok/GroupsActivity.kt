@@ -13,6 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Schedule
+import android.content.Intent
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +30,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.cj.tapblok.database.AppGroup
 import com.cj.tapblok.database.AppGroupDao
 import com.cj.tapblok.settings.SessionSettings
+import com.cj.tapblok.ui.OverrideSliderRow
 import com.cj.tapblok.ui.theme.TapBlokTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -246,6 +249,7 @@ private fun GroupCard(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -254,6 +258,15 @@ private fun GroupCard(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = {
+                    val intent = Intent(context, GroupTimeRulesActivity::class.java).apply {
+                        putExtra(GroupTimeRulesActivity.EXTRA_GROUP_ID, group.id)
+                        putExtra(GroupTimeRulesActivity.EXTRA_GROUP_NAME, group.name)
+                    }
+                    context.startActivity(intent)
+                }) {
+                    Icon(Icons.Default.Schedule, contentDescription = "Time rules")
+                }
                 IconButton(onClick = onRename, enabled = editable) {
                     Icon(Icons.Default.Edit, contentDescription = "Rename")
                 }
@@ -299,52 +312,6 @@ private fun GroupCard(
                 onChange = { onUpdate(group.copy(minBetweenBreaksMs = it?.toLong()?.times(60_000L))) }
             )
         }
-    }
-}
-
-@Composable
-private fun OverrideSliderRow(
-    label: String,
-    overrideValue: Int?,
-    globalValueDisplay: String,
-    rangeMax: Int,
-    stepUnitLabel: String,
-    editable: Boolean,
-    rangeMin: Int = 1,
-    onChange: (Int?) -> Unit
-) {
-    val useGlobal = overrideValue == null
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text(
-            text = if (useGlobal) "Global ($globalValueDisplay)"
-            else if (stepUnitLabel.isEmpty()) overrideValue.toString()
-            else if (overrideValue == 0) "Off"
-            else "$overrideValue $stepUnitLabel",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
-            checked = !useGlobal,
-            enabled = editable,
-            onCheckedChange = { override ->
-                if (override) {
-                    onChange(rangeMin.coerceAtLeast(1))
-                } else {
-                    onChange(null)
-                }
-            }
-        )
-    }
-    if (!useGlobal) {
-        Slider(
-            value = overrideValue!!.toFloat(),
-            onValueChange = { onChange(it.toInt()) },
-            valueRange = rangeMin.toFloat()..rangeMax.toFloat(),
-            steps = (rangeMax - rangeMin - 1).coerceAtLeast(0),
-            enabled = editable
-        )
     }
 }
 

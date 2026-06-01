@@ -8,14 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [BlockedApp::class, AppGroup::class],
-    version = 2,
+    entities = [BlockedApp::class, AppGroup::class, GroupTimeRule::class],
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun blockedAppDao(): BlockedAppDao
     abstract fun appGroupDao(): AppGroupDao
+    abstract fun groupTimeRuleDao(): GroupTimeRuleDao
 
     companion object {
         @Volatile
@@ -52,6 +53,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS group_time_rules (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        groupId INTEGER NOT NULL,
+                        daysOfWeekMask INTEGER NOT NULL,
+                        startMinuteOfDay INTEGER NOT NULL,
+                        endMinuteOfDay INTEGER NOT NULL,
+                        priority INTEGER NOT NULL DEFAULT 0,
+                        blockingEnabled INTEGER NOT NULL DEFAULT 1,
+                        breakCountOverride INTEGER,
+                        breakDurationMsOverride INTEGER,
+                        minBetweenBreaksMsOverride INTEGER,
+                        FOREIGN KEY(groupId) REFERENCES app_groups(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_group_time_rules_groupId ON group_time_rules(groupId)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -59,7 +83,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "app_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance

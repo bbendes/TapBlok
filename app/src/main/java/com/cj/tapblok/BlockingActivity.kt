@@ -34,7 +34,9 @@ import coil.compose.rememberAsyncImagePainter
 import com.cj.tapblok.database.AppDatabase
 import com.cj.tapblok.settings.GlobalBreakSettings
 import com.cj.tapblok.settings.SessionSettings
-import com.cj.tapblok.settings.resolveBreakSettings
+import com.cj.tapblok.settings.currentDayOfWeekBit
+import com.cj.tapblok.settings.currentMinuteOfDay
+import com.cj.tapblok.settings.resolveForGroup
 import com.cj.tapblok.ui.theme.TapBlokTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -130,12 +132,21 @@ fun BlockingScreen(
             count = SessionSettings.breakCount(context),
             minBetweenMs = SessionSettings.minBetweenBreaksMs(context)
         )
+        val db = AppDatabase.getDatabase(context)
         val group = if (groupId != null) {
-            withContext(Dispatchers.IO) {
-                AppDatabase.getDatabase(context).appGroupDao().getById(groupId)
-            }
+            withContext(Dispatchers.IO) { db.appGroupDao().getById(groupId) }
         } else null
-        val effective = resolveBreakSettings(group, global)
+        val rules = if (groupId != null) {
+            withContext(Dispatchers.IO) { db.groupTimeRuleDao().getRulesForGroup(groupId) }
+        } else emptyList()
+        val nowAtResolve = System.currentTimeMillis()
+        val effective = resolveForGroup(
+            group = group,
+            rules = rules,
+            nowDayOfWeekBit = currentDayOfWeekBit(nowAtResolve),
+            nowMinuteOfDay = currentMinuteOfDay(nowAtResolve),
+            global = global
+        )
         val lastEndedAtMs = SessionSettings.groupLastBreakEndedAtMs(context, groupId)
 
         while (true) {
