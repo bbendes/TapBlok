@@ -2,7 +2,10 @@ package com.cj.tapblok
 
 import android.app.PendingIntent
 import android.app.Service
+import android.app.admin.DevicePolicyManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.CountDownTimer
@@ -31,6 +34,8 @@ class AppMonitoringService : Service() {
     @Volatile private var currentBreakGroupId: Long? = null
     private var isMonitoring = false
     private var breakTimer: CountDownTimer? = null
+    private var lastForeground = ForegroundInfo(null, null)
+    private var lastEventsQueryTime = 0L
 
     companion object {
         const val NOTIFICATION_ID = 1
@@ -105,8 +110,9 @@ class AppMonitoringService : Service() {
                 }
 
                 if (!isBreakActive) {
-                    val foregroundApp = getForegroundApp()
-                    if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Current App: $foregroundApp")
+                    val foreground = getForegroundInfo()
+                    val foregroundApp = foreground.packageName
+                    if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Foreground: $foregroundApp / ${foreground.className}")
 
                     if (foregroundApp != null && packageToGroupId.containsKey(foregroundApp) && foregroundApp != packageName) {
                         val groupId = packageToGroupId[foregroundApp]
@@ -122,6 +128,13 @@ class AppMonitoringService : Service() {
                         prefs.edit {
                             putInt("blocked_app_attempts", attempts + 1)
                         }
+                    } else if (isDeviceAdminActive() && isUninstallPath(foreground)) {
+                        val home = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_HOME)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(home)
+                        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Uninstall path detected (${foreground.packageName}/${foreground.className}) — redirecting home.")
                     }
                 }
                 delay(1000)
@@ -200,14 +213,49 @@ class AppMonitoringService : Service() {
         return null
     }
 
-    private fun getForegroundApp(): String? {
-        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val time = System.currentTimeMillis()
-        val appList = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            time - 1000 * 10,
-            time
-        )
-        return appList?.maxByOrNull { it.lastTimeUsed }?.packageName
+    private fun isDeviceAdminActive(): Boolean {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(ComponentName(this, TapBlokDeviceAdminReceiver::class.java))
+    }
+
+    private data class ForegroundInfo(val packageName: String?, val className: String?)
+
+    /**
+     * Walk every new MOVE_TO_FOREGROUND / ACTIVITY_RESUMED event since the last poll and update
+     * `lastForeground`. If no events fired in this window (user sitting still on a screen),
+     * `lastForeground` keeps its prior value — important because the redirect target screens
+     * (app info, device admin) emit no further events while sitting on them.
+     */
+    private fun getForegroundInfo(): ForegroundInfo {
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val now = System.currentTimeMillis()
+        val from = if (lastEventsQueryTime == 0L) now - 60_000L else lastEventsQueryTime
+        val events = usm.queryEvents(from, now)
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+            ) {
+                lastForeground = ForegroundInfo(event.packageName, event.className)
+            }
+        }
+        lastEventsQueryTime = now
+        return lastForeground
+    }
+
+    /**
+     * True when the foreground screen is one the user could use to defeat the session:
+     * Android Settings (the uninstall + device-admin revoke paths both live there, and modern
+     * Pixel collapses sub-screens into a generic SubSettings host activity so we can't
+     * distinguish them by class name) or the package installer's confirm-uninstall flow.
+     */
+    private fun isUninstallPath(info: ForegroundInfo): Boolean {
+        return when (info.packageName) {
+            "com.android.settings",
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller" -> true
+            else -> false
+        }
     }
 }

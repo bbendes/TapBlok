@@ -1,9 +1,14 @@
 package com.cj.tapblok
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.GroupWork
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.Switch
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -193,7 +200,84 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Protection",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        DeviceAdminCard(enabled = !sessionActive)
+
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun DeviceAdminCard(enabled: Boolean) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val dpm = remember { context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager }
+    val component = remember { ComponentName(context, TapBlokDeviceAdminReceiver::class.java) }
+
+    var adminActive by remember { mutableStateOf(dpm.isAdminActive(component)) }
+
+    val adminLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        adminActive = dpm.isAdminActive(component)
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                adminActive = dpm.isAdminActive(component)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shield,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Lock app uninstall", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Greys out Force Stop and bounces you home if you open Android Settings during a session, blocking the uninstall path.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = adminActive,
+                enabled = enabled,
+                onCheckedChange = { wantOn ->
+                    if (wantOn) {
+                        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
+                            putExtra(
+                                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                                "Lets TapBlok keep itself running during a focus session. Force Stop is greyed out while this is on; you can disable it any time from this screen."
+                            )
+                        }
+                        adminLauncher.launch(intent)
+                    } else if (adminActive) {
+                        dpm.removeActiveAdmin(component)
+                        adminActive = false
+                    }
+                }
+            )
+        }
     }
 }
 
