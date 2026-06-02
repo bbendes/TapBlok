@@ -7,19 +7,22 @@ import java.util.Calendar
 data class GlobalBreakSettings(
     val durationMs: Long,
     val count: Int,
-    val minBetweenMs: Long
+    val minBetweenMs: Long,
+    val minDelayBeforeFirstBreakMs: Long = 0L,
 )
 
 data class EffectiveBreakSettings(
     val durationMs: Long,
     val count: Int,
-    val minBetweenMs: Long
+    val minBetweenMs: Long,
+    val minDelayBeforeFirstBreakMs: Long = 0L,
 )
 
 data class ResolvedGroupSettings(
     val durationMs: Long,
     val count: Int,
     val minBetweenMs: Long,
+    val minDelayBeforeFirstBreakMs: Long,
     val blockingEnabled: Boolean,
     val matchedRuleId: Long?,
 )
@@ -28,7 +31,8 @@ fun resolveBreakSettings(group: AppGroup?, global: GlobalBreakSettings): Effecti
     EffectiveBreakSettings(
         durationMs = group?.breakDurationMs ?: global.durationMs,
         count = group?.breakCount ?: global.count,
-        minBetweenMs = group?.minBetweenBreaksMs ?: global.minBetweenMs
+        minBetweenMs = group?.minBetweenBreaksMs ?: global.minBetweenMs,
+        minDelayBeforeFirstBreakMs = group?.minDelayBeforeFirstBreakMs ?: global.minDelayBeforeFirstBreakMs,
     )
 
 /**
@@ -56,12 +60,16 @@ fun resolveForGroup(
     val duration = matched?.breakDurationMsOverride ?: group?.breakDurationMs ?: global.durationMs
     val count = matched?.breakCountOverride ?: group?.breakCount ?: global.count
     val minBetween = matched?.minBetweenBreaksMsOverride ?: group?.minBetweenBreaksMs ?: global.minBetweenMs
+    val minDelay = matched?.minDelayBeforeFirstBreakMsOverride
+        ?: group?.minDelayBeforeFirstBreakMs
+        ?: global.minDelayBeforeFirstBreakMs
     val blockingEnabled = matched?.blockingEnabled ?: true
 
     return ResolvedGroupSettings(
         durationMs = duration,
         count = count,
         minBetweenMs = minBetween,
+        minDelayBeforeFirstBreakMs = minDelay,
         blockingEnabled = blockingEnabled,
         matchedRuleId = matched?.id
     )

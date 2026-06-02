@@ -169,6 +169,7 @@ class AppMonitoringService : Service() {
      */
     private fun initSessionCounters() {
         SessionSettings.clearAllGroupSessionState(this)
+        SessionSettings.setSessionStartedAtMs(this, System.currentTimeMillis())
         val globalCount = SessionSettings.breakCount(this)
         SessionSettings.setBreaksRemaining(this, groupId = null, value = globalCount)
         serviceScope.launch {

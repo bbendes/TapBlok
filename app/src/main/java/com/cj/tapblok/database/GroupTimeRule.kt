@@ -32,4 +32,5 @@ data class GroupTimeRule(
     val breakCountOverride: Int? = null,
     val breakDurationMsOverride: Long? = null,
     val minBetweenBreaksMsOverride: Long? = null,
+    val minDelayBeforeFirstBreakMsOverride: Long? = null,
 )

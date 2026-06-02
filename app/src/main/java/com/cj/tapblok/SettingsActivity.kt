@@ -103,6 +103,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var minBetweenMin by remember {
         mutableFloatStateOf((SessionSettings.minBetweenBreaksMs(context) / 60_000L).toFloat())
     }
+    var minDelayBeforeFirstMin by remember {
+        mutableFloatStateOf((SessionSettings.minDelayBeforeFirstBreakMs(context) / 60_000L).toFloat())
+    }
 
     LaunchedEffect(breakDurationMin) {
         SessionSettings.setBreakDurationMs(context, breakDurationMin.toLong() * 60_000L)
@@ -112,6 +115,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     }
     LaunchedEffect(minBetweenMin) {
         SessionSettings.setMinBetweenBreaksMs(context, minBetweenMin.toLong() * 60_000L)
+    }
+    LaunchedEffect(minDelayBeforeFirstMin) {
+        SessionSettings.setMinDelayBeforeFirstBreakMs(context, minDelayBeforeFirstMin.toLong() * 60_000L)
     }
 
     Column(
@@ -162,6 +168,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             onSliderChange = { minBetweenMin = it },
             valueRange = 0f..(SessionSettings.MAX_MIN_BETWEEN_BREAKS_MS / 60_000L).toFloat(),
             steps = (SessionSettings.MAX_MIN_BETWEEN_BREAKS_MS / 60_000L).toInt() - 1,
+            enabled = !sessionActive
+        )
+
+        SettingSliderCard(
+            label = "Delay before first break",
+            value = if (minDelayBeforeFirstMin.toInt() == 0) "Off" else "${minDelayBeforeFirstMin.toInt()} min",
+            sliderValue = minDelayBeforeFirstMin,
+            onSliderChange = { minDelayBeforeFirstMin = it },
+            valueRange = 0f..(SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toFloat(),
+            steps = (SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toInt() - 1,
             enabled = !sessionActive
         )
 

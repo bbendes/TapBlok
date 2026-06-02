@@ -130,7 +130,8 @@ fun BlockingScreen(
         val global = GlobalBreakSettings(
             durationMs = SessionSettings.breakDurationMs(context),
             count = SessionSettings.breakCount(context),
-            minBetweenMs = SessionSettings.minBetweenBreaksMs(context)
+            minBetweenMs = SessionSettings.minBetweenBreaksMs(context),
+            minDelayBeforeFirstBreakMs = SessionSettings.minDelayBeforeFirstBreakMs(context),
         )
         val db = AppDatabase.getDatabase(context)
         val group = if (groupId != null) {
@@ -148,10 +149,17 @@ fun BlockingScreen(
             global = global
         )
         val lastEndedAtMs = SessionSettings.groupLastBreakEndedAtMs(context, groupId)
+        val sessionStartedAtMs = SessionSettings.sessionStartedAtMs(context)
 
         while (true) {
             val now = System.currentTimeMillis()
-            val remainMs = SessionSettings.nextBreakAvailableInMs(now, lastEndedAtMs, effective.minBetweenMs)
+            val remainMs = SessionSettings.nextBreakAvailableInMs(
+                now,
+                lastEndedAtMs,
+                effective.minBetweenMs,
+                sessionStartedAtMs,
+                effective.minDelayBeforeFirstBreakMs,
+            )
             cooldownRemainingSec = (remainMs + 999) / 1000
             if (remainMs == 0L) break
             delay(500)

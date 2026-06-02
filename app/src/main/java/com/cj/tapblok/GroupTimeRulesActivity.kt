@@ -272,6 +272,7 @@ private fun ruleSummary(rule: GroupTimeRule): String {
         rule.breakCountOverride?.let { add("$it breaks") }
         rule.breakDurationMsOverride?.let { add("${it / 60_000L} min duration") }
         rule.minBetweenBreaksMsOverride?.let { add("${it / 60_000L} min cooldown") }
+        rule.minDelayBeforeFirstBreakMsOverride?.let { add("${it / 60_000L} min start delay") }
     }
     return if (parts.isEmpty()) "Uses group defaults" else parts.joinToString(" • ")
 }
@@ -393,6 +394,19 @@ private fun RuleEditorDialog(
                         editable = true,
                         onChange = { mins ->
                             draft = draft.copy(minBetweenBreaksMsOverride = mins?.toLong()?.times(60_000L))
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OverrideSliderRow(
+                        label = "Delay before first break",
+                        overrideValue = draft.minDelayBeforeFirstBreakMsOverride?.let { (it / 60_000L).toInt() },
+                        globalValueDisplay = "group default",
+                        rangeMax = (SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toInt(),
+                        stepUnitLabel = "min",
+                        rangeMin = 0,
+                        editable = true,
+                        onChange = { mins ->
+                            draft = draft.copy(minDelayBeforeFirstBreakMsOverride = mins?.toLong()?.times(60_000L))
                         }
                     )
                 }

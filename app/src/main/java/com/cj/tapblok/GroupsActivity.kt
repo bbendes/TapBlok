@@ -220,6 +220,7 @@ fun GroupsScreen(
                 globalBreakDurationMs = SessionSettings.breakDurationMs(context),
                 globalBreakCount = SessionSettings.breakCount(context),
                 globalMinBetweenMs = SessionSettings.minBetweenBreaksMs(context),
+                globalMinDelayBeforeFirstMs = SessionSettings.minDelayBeforeFirstBreakMs(context),
                 onUpdate = onUpdate,
                 onRename = { onRenameRequest(group) },
                 onDelete = { onDeleteRequest(group) }
@@ -245,6 +246,7 @@ private fun GroupCard(
     globalBreakDurationMs: Long,
     globalBreakCount: Int,
     globalMinBetweenMs: Long,
+    globalMinDelayBeforeFirstMs: Long,
     onUpdate: (AppGroup) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -310,6 +312,18 @@ private fun GroupCard(
                 rangeMin = 0,
                 editable = editable,
                 onChange = { onUpdate(group.copy(minBetweenBreaksMs = it?.toLong()?.times(60_000L))) }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OverrideSliderRow(
+                label = "Delay before first break",
+                overrideValue = group.minDelayBeforeFirstBreakMs?.let { (it / 60_000L).toInt() },
+                globalValueDisplay = if (globalMinDelayBeforeFirstMs == 0L) "Off" else "${globalMinDelayBeforeFirstMs / 60_000L} min",
+                rangeMax = (SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toInt(),
+                stepUnitLabel = "min",
+                rangeMin = 0,
+                editable = editable,
+                onChange = { onUpdate(group.copy(minDelayBeforeFirstBreakMs = it?.toLong()?.times(60_000L))) }
             )
         }
     }

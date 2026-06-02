@@ -9,7 +9,9 @@ object SessionSettings {
     const val KEY_BREAK_DURATION_MS = "break_duration_ms"
     const val KEY_BREAK_COUNT = "break_count"
     const val KEY_MIN_BETWEEN_BREAKS_MS = "min_between_breaks_ms"
+    const val KEY_MIN_DELAY_BEFORE_FIRST_BREAK_MS = "min_delay_before_first_break_ms"
     const val KEY_LAST_BREAK_ENDED_AT_MS = "last_break_ended_at_ms"
+    const val KEY_SESSION_STARTED_AT_MS = "session_started_at_ms"
 
     private const val GROUP_BREAKS_REMAINING_PREFIX = "breaks_remaining_g_"
     private const val GROUP_LAST_BREAK_ENDED_AT_PREFIX = "last_break_ended_at_g_"
@@ -40,16 +42,19 @@ object SessionSettings {
                 editor.remove(key)
             }
         }
+        editor.remove(KEY_SESSION_STARTED_AT_MS)
         editor.apply()
     }
 
     const val DEFAULT_BREAK_DURATION_MS = 5L * 60_000L
     const val DEFAULT_BREAK_COUNT = 3
     const val DEFAULT_MIN_BETWEEN_BREAKS_MS = 0L
+    const val DEFAULT_MIN_DELAY_BEFORE_FIRST_BREAK_MS = 0L
 
     const val MAX_BREAK_DURATION_MS = 30L * 60_000L
     const val MAX_BREAK_COUNT = 10
     const val MAX_MIN_BETWEEN_BREAKS_MS = 60L * 60_000L
+    const val MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS = 60L * 60_000L
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -72,20 +77,45 @@ object SessionSettings {
     fun setMinBetweenBreaksMs(context: Context, value: Long) =
         prefs(context).edit { putLong(KEY_MIN_BETWEEN_BREAKS_MS, value) }
 
+    fun minDelayBeforeFirstBreakMs(context: Context): Long =
+        prefs(context).getLong(KEY_MIN_DELAY_BEFORE_FIRST_BREAK_MS, DEFAULT_MIN_DELAY_BEFORE_FIRST_BREAK_MS)
+
+    fun setMinDelayBeforeFirstBreakMs(context: Context, value: Long) =
+        prefs(context).edit { putLong(KEY_MIN_DELAY_BEFORE_FIRST_BREAK_MS, value) }
+
+    fun sessionStartedAtMs(context: Context): Long =
+        prefs(context).getLong(KEY_SESSION_STARTED_AT_MS, 0L)
+
+    fun setSessionStartedAtMs(context: Context, value: Long) =
+        prefs(context).edit { putLong(KEY_SESSION_STARTED_AT_MS, value) }
+
     fun lastBreakEndedAtMs(context: Context): Long =
         prefs(context).getLong(KEY_LAST_BREAK_ENDED_AT_MS, 0L)
 
     fun setLastBreakEndedAtMs(context: Context, value: Long) =
         prefs(context).edit { putLong(KEY_LAST_BREAK_ENDED_AT_MS, value) }
 
-    fun canTakeBreak(nowMs: Long, lastBreakEndedAtMs: Long, minBetweenBreaksMs: Long): Boolean {
-        if (lastBreakEndedAtMs == 0L) return true
-        return nowMs - lastBreakEndedAtMs >= minBetweenBreaksMs
-    }
+    fun canTakeBreak(
+        nowMs: Long,
+        lastBreakEndedAtMs: Long,
+        minBetweenBreaksMs: Long,
+        sessionStartedAtMs: Long = 0L,
+        minDelayBeforeFirstBreakMs: Long = 0L,
+    ): Boolean = nextBreakAvailableInMs(
+        nowMs, lastBreakEndedAtMs, minBetweenBreaksMs, sessionStartedAtMs, minDelayBeforeFirstBreakMs
+    ) == 0L
 
-    fun nextBreakAvailableInMs(nowMs: Long, lastBreakEndedAtMs: Long, minBetweenBreaksMs: Long): Long {
-        if (lastBreakEndedAtMs == 0L) return 0L
-        val remaining = (lastBreakEndedAtMs + minBetweenBreaksMs) - nowMs
-        return remaining.coerceAtLeast(0L)
+    fun nextBreakAvailableInMs(
+        nowMs: Long,
+        lastBreakEndedAtMs: Long,
+        minBetweenBreaksMs: Long,
+        sessionStartedAtMs: Long = 0L,
+        minDelayBeforeFirstBreakMs: Long = 0L,
+    ): Long {
+        val cooldownRemaining = if (lastBreakEndedAtMs == 0L) 0L
+            else ((lastBreakEndedAtMs + minBetweenBreaksMs) - nowMs).coerceAtLeast(0L)
+        val startDelayRemaining = if (sessionStartedAtMs == 0L || minDelayBeforeFirstBreakMs == 0L) 0L
+            else ((sessionStartedAtMs + minDelayBeforeFirstBreakMs) - nowMs).coerceAtLeast(0L)
+        return maxOf(cooldownRemaining, startDelayRemaining)
     }
 }

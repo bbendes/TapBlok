@@ -9,5 +9,6 @@ data class AppGroup(
     val name: String,
     val breakDurationMs: Long? = null,
     val breakCount: Int? = null,
-    val minBetweenBreaksMs: Long? = null
+    val minBetweenBreaksMs: Long? = null,
+    val minDelayBeforeFirstBreakMs: Long? = null
 )
