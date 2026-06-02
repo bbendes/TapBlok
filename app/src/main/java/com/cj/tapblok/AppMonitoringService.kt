@@ -37,7 +37,6 @@ class AppMonitoringService : Service() {
     private lateinit var prefs: android.content.SharedPreferences
     @Volatile private var packageToGroupId: Map<String, Long?> = emptyMap()
     @Volatile private var timeRulesByGroup: Map<Long, List<GroupTimeRule>> = emptyMap()
-    @Volatile private var isBreakActive = false
     @Volatile private var currentBreakGroupId: Long? = null
     private var isMonitoring = false
     private var breakTimer: CountDownTimer? = null
@@ -48,11 +47,13 @@ class AppMonitoringService : Service() {
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID = "app_monitoring_channel"
         const val ACTION_START_BREAK = "com.cj.tapblok.ACTION_START_BREAK"
+        const val ACTION_END_BREAK = "com.cj.tapblok.ACTION_END_BREAK"
         const val EXTRA_BLOCKED_APP_PACKAGE_NAME = "BLOCKED_APP_PACKAGE_NAME"
         const val EXTRA_BLOCKED_GROUP_ID = "BLOCKED_GROUP_ID"
         const val EXTRA_BREAK_GROUP_ID = "BREAK_GROUP_ID"
         private const val NO_GROUP_SENTINEL = Long.MIN_VALUE
         @Volatile var isRunning = false
+        @Volatile var isBreakActive = false
     }
 
     override fun onCreate() {
@@ -67,6 +68,14 @@ class AppMonitoringService : Service() {
             val groupIdRaw = intent.getLongExtra(EXTRA_BREAK_GROUP_ID, NO_GROUP_SENTINEL)
             val groupId = if (groupIdRaw == NO_GROUP_SENTINEL) null else groupIdRaw
             startBreak(groupId)
+            return START_NOT_STICKY
+        }
+
+        if (intent?.action == ACTION_END_BREAK) {
+            if (isBreakActive) {
+                breakTimer?.cancel()
+                finishBreak()
+            }
             return START_NOT_STICKY
         }
 
@@ -196,20 +205,22 @@ class AppMonitoringService : Service() {
             withContext(Dispatchers.Main) {
                 breakTimer = object : CountDownTimer(durationMs, 1000) {
                     override fun onTick(millisUntilFinished: Long) {}
-                    override fun onFinish() {
-                        isBreakActive = false
-                        val finishedGroupId = currentBreakGroupId
-                        currentBreakGroupId = null
-                        SessionSettings.setGroupLastBreakEndedAtMs(
-                            this@AppMonitoringService,
-                            finishedGroupId,
-                            System.currentTimeMillis()
-                        )
-                        Log.d("AppMonitoringService", "Break finished (group=$finishedGroupId).")
-                    }
+                    override fun onFinish() = finishBreak()
                 }.start()
             }
         }
+    }
+
+    private fun finishBreak() {
+        isBreakActive = false
+        val finishedGroupId = currentBreakGroupId
+        currentBreakGroupId = null
+        SessionSettings.setGroupLastBreakEndedAtMs(
+            this,
+            finishedGroupId,
+            System.currentTimeMillis()
+        )
+        Log.d("AppMonitoringService", "Break finished (group=$finishedGroupId).")
     }
 
     private suspend fun effectiveBreakDurationMs(groupId: Long?): Long {

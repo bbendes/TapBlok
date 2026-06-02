@@ -137,7 +137,18 @@ class BlockingActivity : ComponentActivity() {
                 finish()
             }
             NfcTagType.StartOnly -> {
-                Toast.makeText(this, "Session already active.", Toast.LENGTH_SHORT).show()
+                if (AppMonitoringService.isBreakActive &&
+                    SessionSettings.startTagEndsBreak(this)
+                ) {
+                    val endIntent = Intent(this, AppMonitoringService::class.java).apply {
+                        action = AppMonitoringService.ACTION_END_BREAK
+                    }
+                    startService(endIntent)
+                    Toast.makeText(this, "Break ended.", Toast.LENGTH_SHORT).show()
+                    finish()
+                } else {
+                    Toast.makeText(this, "Session already active.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

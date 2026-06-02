@@ -109,6 +109,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var requireNfcBreakTag by remember {
         mutableStateOf(SessionSettings.requireNfcBreakTag(context))
     }
+    var startTagEndsBreak by remember {
+        mutableStateOf(SessionSettings.startTagEndsBreak(context))
+    }
 
     LaunchedEffect(breakDurationMin) {
         SessionSettings.setBreakDurationMs(context, breakDurationMin.toLong() * 60_000L)
@@ -124,6 +127,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     }
     LaunchedEffect(requireNfcBreakTag) {
         SessionSettings.setRequireNfcBreakTag(context, requireNfcBreakTag)
+    }
+    LaunchedEffect(startTagEndsBreak) {
+        SessionSettings.setStartTagEndsBreak(context, startTagEndsBreak)
     }
 
     Column(
@@ -192,6 +198,14 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             description = "Hides the Take a Break button — only a Break NFC tag can start a break.",
             checked = requireNfcBreakTag,
             onCheckedChange = { requireNfcBreakTag = it },
+            enabled = !sessionActive
+        )
+
+        SettingSwitchCard(
+            label = "Start tag ends an active break",
+            description = "Tap a Start tag during a break to end it early. The cooldown begins immediately.",
+            checked = startTagEndsBreak,
+            onCheckedChange = { startTagEndsBreak = it },
             enabled = !sessionActive
         )
 
