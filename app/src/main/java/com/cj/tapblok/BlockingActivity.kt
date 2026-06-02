@@ -1,10 +1,16 @@
 package com.cj.tapblok
 
+import android.app.PendingIntent
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.nfc.NdefMessage
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -32,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.nfc.NfcTagType
 import com.cj.tapblok.settings.GlobalBreakSettings
 import com.cj.tapblok.settings.SessionSettings
 import com.cj.tapblok.settings.currentDayOfWeekBit
@@ -53,13 +60,17 @@ private fun formatDuration(totalSec: Long): String {
 }
 
 class BlockingActivity : ComponentActivity() {
+    private var blockedGroupId: Long? = null
+    private var nfcAdapter: NfcAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val packageName = intent.getStringExtra(AppMonitoringService.EXTRA_BLOCKED_APP_PACKAGE_NAME) ?: "An app"
-        val groupId: Long? = if (intent.hasExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID)) {
+        blockedGroupId = if (intent.hasExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID)) {
             intent.getLongExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID, -1L)
         } else null
+        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
 
         val goHome = {
             val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -78,21 +89,73 @@ class BlockingActivity : ComponentActivity() {
             TapBlokTheme {
                 BlockingScreen(
                     packageName = packageName,
-                    groupId = groupId,
+                    groupId = blockedGroupId,
                     onGoHomeClick = goHome,
-                    onTakeBreakClick = {
-                        val breakIntent = Intent(this, AppMonitoringService::class.java).apply {
-                            action = AppMonitoringService.ACTION_START_BREAK
-                            if (groupId != null) {
-                                putExtra(AppMonitoringService.EXTRA_BREAK_GROUP_ID, groupId)
-                            }
-                        }
-                        startService(breakIntent)
-                        finish()
-                    }
+                    onTakeBreakClick = { startBreakAndFinish() }
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val adapter = nfcAdapter ?: return
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_MUTABLE
+        )
+        val mimeFilter = IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+            try {
+                addDataType(NfcWriteActivity.NFC_MIME_TYPE)
+            } catch (e: IntentFilter.MalformedMimeTypeException) {
+                Log.e("BlockingActivity", "Bad MIME type for NFC filter", e)
+                return
+            }
+        }
+        adapter.enableForegroundDispatch(this, pendingIntent, arrayOf(mimeFilter), null)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        nfcAdapter?.disableForegroundDispatch(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (NfcAdapter.ACTION_NDEF_DISCOVERED != intent.action) return
+        val messages = intent.getParcelableArrayExtraCompat<NdefMessage>(NfcAdapter.EXTRA_NDEF_MESSAGES)
+        val ndefMessage = messages?.firstOrNull() as? NdefMessage ?: return
+        val record = ndefMessage.records.firstOrNull() ?: return
+        if (String(record.type, Charsets.UTF_8) != NfcWriteActivity.NFC_MIME_TYPE) return
+        when (NfcTagType.parse(String(record.payload, Charsets.UTF_8))) {
+            NfcTagType.Break -> startBreakAndFinish()
+            NfcTagType.Toggle -> {
+                stopService(Intent(this, AppMonitoringService::class.java))
+                Toast.makeText(this, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
+                finish()
+            }
+            NfcTagType.StartOnly -> {
+                Toast.makeText(this, "Session already active.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun startBreakAndFinish() {
+        val groupId = blockedGroupId
+        val remaining = SessionSettings.breaksRemaining(this, groupId)
+        if (remaining <= 0) {
+            Toast.makeText(this, "No breaks remaining.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        SessionSettings.setBreaksRemaining(this, groupId, remaining - 1)
+        val breakIntent = Intent(this, AppMonitoringService::class.java).apply {
+            action = AppMonitoringService.ACTION_START_BREAK
+            if (groupId != null) putExtra(AppMonitoringService.EXTRA_BREAK_GROUP_ID, groupId)
+        }
+        startService(breakIntent)
+        finish()
     }
 }
 
@@ -107,8 +170,9 @@ fun BlockingScreen(
 
     var appName by remember { mutableStateOf(packageName) }
     var appIcon by remember { mutableStateOf<Drawable?>(null) }
-    var breaksRemaining by remember { mutableStateOf(SessionSettings.breaksRemaining(context, groupId)) }
+    val breaksRemaining = remember { SessionSettings.breaksRemaining(context, groupId) }
     var cooldownRemainingSec by remember { mutableStateOf(0L) }
+    val requireNfcBreakTag = remember { SessionSettings.requireNfcBreakTag(context) }
 
     LaunchedEffect(key1 = Unit) {
         val pm = context.packageManager
@@ -241,19 +305,28 @@ fun BlockingScreen(
             if (breaksRemaining > 0) {
                 Spacer(modifier = Modifier.height(12.dp))
                 val cooldownActive = cooldownRemainingSec > 0
-                OutlinedButton(
-                    onClick = {
-                        SessionSettings.setBreaksRemaining(context, groupId, breaksRemaining - 1)
-                        breaksRemaining -= 1
-                        onTakeBreakClick()
-                    },
-                    enabled = !cooldownActive,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                if (requireNfcBreakTag) {
                     Text(
-                        if (cooldownActive) "Next break in ${formatDuration(cooldownRemainingSec)}"
-                        else "Take a Break ($breaksRemaining remaining)"
+                        text = if (cooldownActive)
+                            "Next break in ${formatDuration(cooldownRemainingSec)}"
+                        else
+                            "Tap your Break NFC tag to take a break ($breaksRemaining remaining).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
+                } else {
+                    OutlinedButton(
+                        onClick = onTakeBreakClick,
+                        enabled = !cooldownActive,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (cooldownActive) "Next break in ${formatDuration(cooldownRemainingSec)}"
+                            else "Take a Break ($breaksRemaining remaining)"
+                        )
+                    }
                 }
             }
         }

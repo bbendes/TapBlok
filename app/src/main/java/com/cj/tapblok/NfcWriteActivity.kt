@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FreeBreakfast
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SyncAlt
@@ -170,6 +171,12 @@ private fun TagTypePicker(onSelect: (NfcTagType) -> Unit) {
             subtitle = "Only starts a session — never stops one. Safe to keep handy.",
             onClick = { onSelect(NfcTagType.StartOnly) }
         )
+        TagTypeCard(
+            icon = Icons.Default.FreeBreakfast,
+            title = "Break",
+            subtitle = "Starts a break during an active session. Hide somewhere mildly inconvenient.",
+            onClick = { onSelect(NfcTagType.Break) }
+        )
     }
 }
 
@@ -250,6 +257,7 @@ private fun ReadyToWriteScreen(tagType: NfcTagType) {
             text = when (tagType) {
                 NfcTagType.Toggle -> "Start & Stop tag"
                 NfcTagType.StartOnly -> "Start-only tag"
+                NfcTagType.Break -> "Break tag"
             },
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary

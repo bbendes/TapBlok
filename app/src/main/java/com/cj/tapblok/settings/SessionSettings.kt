@@ -10,6 +10,7 @@ object SessionSettings {
     const val KEY_BREAK_COUNT = "break_count"
     const val KEY_MIN_BETWEEN_BREAKS_MS = "min_between_breaks_ms"
     const val KEY_MIN_DELAY_BEFORE_FIRST_BREAK_MS = "min_delay_before_first_break_ms"
+    const val KEY_REQUIRE_NFC_BREAK_TAG = "require_nfc_break_tag"
     const val KEY_LAST_BREAK_ENDED_AT_MS = "last_break_ended_at_ms"
     const val KEY_SESSION_STARTED_AT_MS = "session_started_at_ms"
 
@@ -50,6 +51,7 @@ object SessionSettings {
     const val DEFAULT_BREAK_COUNT = 3
     const val DEFAULT_MIN_BETWEEN_BREAKS_MS = 0L
     const val DEFAULT_MIN_DELAY_BEFORE_FIRST_BREAK_MS = 0L
+    const val DEFAULT_REQUIRE_NFC_BREAK_TAG = false
 
     const val MAX_BREAK_DURATION_MS = 30L * 60_000L
     const val MAX_BREAK_COUNT = 10
@@ -88,6 +90,12 @@ object SessionSettings {
 
     fun setSessionStartedAtMs(context: Context, value: Long) =
         prefs(context).edit { putLong(KEY_SESSION_STARTED_AT_MS, value) }
+
+    fun requireNfcBreakTag(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_REQUIRE_NFC_BREAK_TAG, DEFAULT_REQUIRE_NFC_BREAK_TAG)
+
+    fun setRequireNfcBreakTag(context: Context, value: Boolean) =
+        prefs(context).edit { putBoolean(KEY_REQUIRE_NFC_BREAK_TAG, value) }
 
     fun lastBreakEndedAtMs(context: Context): Long =
         prefs(context).getLong(KEY_LAST_BREAK_ENDED_AT_MS, 0L)

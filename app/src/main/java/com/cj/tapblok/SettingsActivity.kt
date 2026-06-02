@@ -106,6 +106,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var minDelayBeforeFirstMin by remember {
         mutableFloatStateOf((SessionSettings.minDelayBeforeFirstBreakMs(context) / 60_000L).toFloat())
     }
+    var requireNfcBreakTag by remember {
+        mutableStateOf(SessionSettings.requireNfcBreakTag(context))
+    }
 
     LaunchedEffect(breakDurationMin) {
         SessionSettings.setBreakDurationMs(context, breakDurationMin.toLong() * 60_000L)
@@ -118,6 +121,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     }
     LaunchedEffect(minDelayBeforeFirstMin) {
         SessionSettings.setMinDelayBeforeFirstBreakMs(context, minDelayBeforeFirstMin.toLong() * 60_000L)
+    }
+    LaunchedEffect(requireNfcBreakTag) {
+        SessionSettings.setRequireNfcBreakTag(context, requireNfcBreakTag)
     }
 
     Column(
@@ -178,6 +184,14 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             onSliderChange = { minDelayBeforeFirstMin = it },
             valueRange = 0f..(SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toFloat(),
             steps = (SessionSettings.MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS / 60_000L).toInt() - 1,
+            enabled = !sessionActive
+        )
+
+        SettingSwitchCard(
+            label = "Require NFC tag to take a break",
+            description = "Hides the Take a Break button — only a Break NFC tag can start a break.",
+            checked = requireNfcBreakTag,
+            onCheckedChange = { requireNfcBreakTag = it },
             enabled = !sessionActive
         )
 
@@ -292,6 +306,38 @@ private fun DeviceAdminCard(enabled: Boolean) {
                         adminActive = false
                     }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitchCard(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean
+) {
+    ElevatedCard {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled
             )
         }
     }

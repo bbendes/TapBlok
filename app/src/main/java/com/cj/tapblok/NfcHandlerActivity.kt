@@ -57,6 +57,17 @@ class NfcHandlerActivity : ComponentActivity() {
                             Toast.makeText(this, "Monitoring started.", Toast.LENGTH_SHORT).show()
                         }
                     }
+                    NfcTagType.Break -> {
+                        if (running) {
+                            val breakIntent = Intent(this, AppMonitoringService::class.java).apply {
+                                action = AppMonitoringService.ACTION_START_BREAK
+                            }
+                            startService(breakIntent)
+                            Toast.makeText(this, "Break started.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "Start a session first.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
         }
