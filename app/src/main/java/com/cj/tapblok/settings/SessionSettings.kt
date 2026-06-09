@@ -14,6 +14,9 @@ object SessionSettings {
     const val KEY_START_TAG_ENDS_BREAK = "start_tag_ends_break"
     const val KEY_LAST_BREAK_ENDED_AT_MS = "last_break_ended_at_ms"
     const val KEY_SESSION_STARTED_AT_MS = "session_started_at_ms"
+    const val KEY_TIMEOUT_ENDS_AT_MS = "timeout_ends_at_ms"
+    const val KEY_TIMEOUT_DURATION_MS = "timeout_duration_ms"
+    const val KEY_TIMEOUT_ALLOWED_GROUP_ID = "timeout_allowed_group_id"
 
     private const val GROUP_BREAKS_REMAINING_PREFIX = "breaks_remaining_g_"
     private const val GROUP_LAST_BREAK_ENDED_AT_PREFIX = "last_break_ended_at_g_"
@@ -54,11 +57,14 @@ object SessionSettings {
     const val DEFAULT_MIN_DELAY_BEFORE_FIRST_BREAK_MS = 0L
     const val DEFAULT_REQUIRE_NFC_BREAK_TAG = false
     const val DEFAULT_START_TAG_ENDS_BREAK = false
+    const val DEFAULT_TIMEOUT_DURATION_MS = 60L * 60_000L
+    const val NO_TIMEOUT_GROUP_ID = -1L
 
     const val MAX_BREAK_DURATION_MS = 30L * 60_000L
     const val MAX_BREAK_COUNT = 10
     const val MAX_MIN_BETWEEN_BREAKS_MS = 60L * 60_000L
     const val MAX_MIN_DELAY_BEFORE_FIRST_BREAK_MS = 60L * 60_000L
+    const val MAX_TIMEOUT_DURATION_MS = 4L * 60L * 60_000L
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -110,6 +116,27 @@ object SessionSettings {
 
     fun setLastBreakEndedAtMs(context: Context, value: Long) =
         prefs(context).edit { putLong(KEY_LAST_BREAK_ENDED_AT_MS, value) }
+
+    fun timeoutEndsAtMs(context: Context): Long =
+        prefs(context).getLong(KEY_TIMEOUT_ENDS_AT_MS, 0L)
+
+    fun setTimeoutEndsAtMs(context: Context, value: Long) =
+        prefs(context).edit { putLong(KEY_TIMEOUT_ENDS_AT_MS, value) }
+
+    fun timeoutActive(context: Context, nowMs: Long): Boolean =
+        timeoutEndsAtMs(context) > nowMs
+
+    fun timeoutDurationMs(context: Context): Long =
+        prefs(context).getLong(KEY_TIMEOUT_DURATION_MS, DEFAULT_TIMEOUT_DURATION_MS)
+
+    fun setTimeoutDurationMs(context: Context, value: Long) =
+        prefs(context).edit { putLong(KEY_TIMEOUT_DURATION_MS, value) }
+
+    fun timeoutAllowedGroupId(context: Context): Long =
+        prefs(context).getLong(KEY_TIMEOUT_ALLOWED_GROUP_ID, NO_TIMEOUT_GROUP_ID)
+
+    fun setTimeoutAllowedGroupId(context: Context, value: Long) =
+        prefs(context).edit { putLong(KEY_TIMEOUT_ALLOWED_GROUP_ID, value) }
 
     fun canTakeBreak(
         nowMs: Long,

@@ -173,12 +173,12 @@ fun GroupsScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var sessionActive by remember { mutableStateOf(AppMonitoringService.isRunning) }
+    var sessionActive by remember { mutableStateOf(AppMonitoringService.isMonitoringActive) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                sessionActive = AppMonitoringService.isRunning
+                sessionActive = AppMonitoringService.isMonitoringActive
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

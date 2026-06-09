@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.GroupWork
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,17 +44,23 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.database.AppGroup
 import com.cj.tapblok.settings.SessionSettings
 import com.cj.tapblok.ui.theme.TapBlokTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class SettingsActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -82,12 +91,12 @@ class SettingsActivity : ComponentActivity() {
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var sessionActive by remember { mutableStateOf(AppMonitoringService.isRunning) }
+    var sessionActive by remember { mutableStateOf(AppMonitoringService.isMonitoringActive) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                sessionActive = AppMonitoringService.isRunning
+                sessionActive = AppMonitoringService.isMonitoringActive
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -112,7 +121,13 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var startTagEndsBreak by remember {
         mutableStateOf(SessionSettings.startTagEndsBreak(context))
     }
+    var timeoutDurationMin by remember {
+        mutableFloatStateOf((SessionSettings.timeoutDurationMs(context) / 60_000L).toFloat())
+    }
 
+    LaunchedEffect(timeoutDurationMin) {
+        SessionSettings.setTimeoutDurationMs(context, timeoutDurationMin.toLong() * 60_000L)
+    }
     LaunchedEffect(breakDurationMin) {
         SessionSettings.setBreakDurationMs(context, breakDurationMin.toLong() * 60_000L)
     }
@@ -247,6 +262,32 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
+            text = "Timeout mode",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = "A Timeout tag blocks everything except the apps in the allowed group, for the duration below. It does not change your monitoring session.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        SettingSliderCard(
+            label = "Timeout duration",
+            value = "${timeoutDurationMin.toInt()} min",
+            sliderValue = timeoutDurationMin,
+            onSliderChange = { timeoutDurationMin = it },
+            valueRange = 5f..(SessionSettings.MAX_TIMEOUT_DURATION_MS / 60_000L).toFloat(),
+            steps = ((SessionSettings.MAX_TIMEOUT_DURATION_MS / 60_000L).toInt() - 5) / 5 - 1,
+            enabled = true
+        )
+
+        TimeoutAllowedGroupCard()
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
             text = "Protection",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary
@@ -321,6 +362,77 @@ private fun DeviceAdminCard(enabled: Boolean) {
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun TimeoutAllowedGroupCard() {
+    val context = LocalContext.current
+    var groups by remember { mutableStateOf<List<AppGroup>>(emptyList()) }
+    var selectedGroupId by remember {
+        mutableLongStateOf(SessionSettings.timeoutAllowedGroupId(context))
+    }
+    var expanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        groups = withContext(Dispatchers.IO) {
+            AppDatabase.getDatabase(context).appGroupDao().getAllList()
+        }
+    }
+
+    val selectedName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: "None"
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Allowed apps group", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "During Timeout mode, only apps assigned to this group stay usable. These apps are always allowed — they are never blocked, even during a normal session. Assign apps to a group from Manage groups / blocked apps.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Box {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = selectedName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("None") },
+                        onClick = {
+                            selectedGroupId = SessionSettings.NO_TIMEOUT_GROUP_ID
+                            SessionSettings.setTimeoutAllowedGroupId(context, selectedGroupId)
+                            expanded = false
+                        }
+                    )
+                    groups.forEach { group ->
+                        DropdownMenuItem(
+                            text = { Text(group.name) },
+                            onClick = {
+                                selectedGroupId = group.id
+                                SessionSettings.setTimeoutAllowedGroupId(context, group.id)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 }

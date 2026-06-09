@@ -56,22 +56,6 @@ class AppSelectionViewModel(
     private val application: Application
 ) : ViewModel() {
 
-    companion object {
-        private val EXCLUDED_PACKAGES = setOf(
-            "com.google.android.dialer",
-            "com.samsung.android.dialer",
-            "com.android.dialer",
-            "com.sonyericsson.android.socialphonebook",
-            "com.android.systemui",
-            "com.google.android.apps.nexuslauncher",
-            "com.sec.android.app.launcher",
-            "com.android.settings",
-            "com.google.android.packageinstaller",
-            "com.android.packageinstaller",
-            "com.google.android.apps.messaging",
-            "com.samsung.android.messaging"
-        )
-    }
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps
 
@@ -93,7 +77,7 @@ class AppSelectionViewModel(
 
             val baseAppList = allApps.mapNotNull { app ->
                 val packageName = app.activityInfo?.packageName ?: return@mapNotNull null
-                if (packageName == application.packageName || EXCLUDED_PACKAGES.contains(packageName)) {
+                if (packageName == application.packageName || CriticalApps.PACKAGES.contains(packageName)) {
                     return@mapNotNull null
                 }
                 try {

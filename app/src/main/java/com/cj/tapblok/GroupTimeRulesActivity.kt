@@ -98,7 +98,7 @@ class GroupTimeRulesActivity : ComponentActivity() {
                 var editTarget by remember { mutableStateOf<GroupTimeRule?>(null) }
                 var showAddDialog by remember { mutableStateOf(false) }
                 var pendingDelete by remember { mutableStateOf<GroupTimeRule?>(null) }
-                val sessionActive = AppMonitoringService.isRunning
+                val sessionActive = AppMonitoringService.isMonitoringActive
 
                 Scaffold(
                     topBar = {

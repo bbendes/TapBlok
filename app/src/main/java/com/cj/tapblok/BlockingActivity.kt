@@ -61,6 +61,7 @@ private fun formatDuration(totalSec: Long): String {
 
 class BlockingActivity : ComponentActivity() {
     private var blockedGroupId: Long? = null
+    private var blockMode: String = AppMonitoringService.BLOCK_MODE_NORMAL
     private var nfcAdapter: NfcAdapter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,6 +71,8 @@ class BlockingActivity : ComponentActivity() {
         blockedGroupId = if (intent.hasExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID)) {
             intent.getLongExtra(AppMonitoringService.EXTRA_BLOCKED_GROUP_ID, -1L)
         } else null
+        blockMode = intent.getStringExtra(AppMonitoringService.EXTRA_BLOCK_MODE)
+            ?: AppMonitoringService.BLOCK_MODE_NORMAL
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
 
         val goHome = {
@@ -90,6 +93,7 @@ class BlockingActivity : ComponentActivity() {
                 BlockingScreen(
                     packageName = packageName,
                     groupId = blockedGroupId,
+                    blockMode = blockMode,
                     onGoHomeClick = goHome,
                     onTakeBreakClick = { startBreakAndFinish() }
                 )
@@ -129,10 +133,40 @@ class BlockingActivity : ComponentActivity() {
         val ndefMessage = messages?.firstOrNull() as? NdefMessage ?: return
         val record = ndefMessage.records.firstOrNull() ?: return
         if (String(record.type, Charsets.UTF_8) != NfcWriteActivity.NFC_MIME_TYPE) return
-        when (NfcTagType.parse(String(record.payload, Charsets.UTF_8))) {
+        val tagType = NfcTagType.parse(String(record.payload, Charsets.UTF_8))
+        val hardBlock = blockMode != AppMonitoringService.BLOCK_MODE_NORMAL
+
+        // Timeout tag always (re)starts a fresh Timeout, in any block mode.
+        if (tagType == NfcTagType.Timeout) {
+            startTimeout(this)
+            Toast.makeText(this, "Timeout mode restarted.", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
+        if (hardBlock) {
+            // Hard block (Timeout/Emergency): no breaks, monitoring toggle can't lift it.
+            when (tagType) {
+                NfcTagType.Toggle -> {
+                    if (blockMode == AppMonitoringService.BLOCK_MODE_TIMEOUT) {
+                        endTimeout(this)
+                        Toast.makeText(this, "Timeout ended.", Toast.LENGTH_SHORT).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this, "Emergency block — not available.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                else -> {
+                    Toast.makeText(this, "Not available during this block.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            return
+        }
+
+        when (tagType) {
             NfcTagType.Break -> startBreakAndFinish()
             NfcTagType.Toggle -> {
-                stopService(Intent(this, AppMonitoringService::class.java))
+                stopMonitoring(this)
                 Toast.makeText(this, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
                 finish()
             }
@@ -150,6 +184,7 @@ class BlockingActivity : ComponentActivity() {
                     Toast.makeText(this, "Session already active.", Toast.LENGTH_SHORT).show()
                 }
             }
+            NfcTagType.Timeout, NfcTagType.Emergency -> { /* handled above */ }
         }
     }
 
@@ -174,10 +209,12 @@ class BlockingActivity : ComponentActivity() {
 fun BlockingScreen(
     packageName: String,
     groupId: Long?,
+    blockMode: String = AppMonitoringService.BLOCK_MODE_NORMAL,
     onGoHomeClick: () -> Unit,
     onTakeBreakClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val hardBlock = blockMode != AppMonitoringService.BLOCK_MODE_NORMAL
 
     var appName by remember { mutableStateOf(packageName) }
     var appIcon by remember { mutableStateOf<Drawable?>(null) }
@@ -298,7 +335,13 @@ fun BlockingScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Tap your NFC tag or scan your QR code to unlock.",
+                text = when (blockMode) {
+                    AppMonitoringService.BLOCK_MODE_TIMEOUT ->
+                        "Timeout mode is active. This app stays blocked until your timeout ends."
+                    AppMonitoringService.BLOCK_MODE_EMERGENCY ->
+                        "Emergency block — this app is blocked for the rest of the day."
+                    else -> "Tap your NFC tag or scan your QR code to unlock."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -313,7 +356,7 @@ fun BlockingScreen(
                 Text("Go Home")
             }
 
-            if (breaksRemaining > 0) {
+            if (!hardBlock && breaksRemaining > 0) {
                 Spacer(modifier = Modifier.height(12.dp))
                 val cooldownActive = cooldownRemainingSec > 0
                 if (requireNfcBreakTag) {

@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import com.cj.tapblok.database.AppDatabase
+import com.cj.tapblok.database.EmergencyBlock
 import com.cj.tapblok.database.GroupTimeRule
 import com.cj.tapblok.settings.GlobalBreakSettings
 import com.cj.tapblok.settings.ResolvedGroupSettings
@@ -37,6 +38,7 @@ class AppMonitoringService : Service() {
     private lateinit var prefs: android.content.SharedPreferences
     @Volatile private var packageToGroupId: Map<String, Long?> = emptyMap()
     @Volatile private var timeRulesByGroup: Map<Long, List<GroupTimeRule>> = emptyMap()
+    @Volatile private var emergencyBlocks: Map<String, Long> = emptyMap()
     @Volatile private var currentBreakGroupId: Long? = null
     private var isMonitoring = false
     private var breakTimer: CountDownTimer? = null
@@ -48,11 +50,24 @@ class AppMonitoringService : Service() {
         const val CHANNEL_ID = "app_monitoring_channel"
         const val ACTION_START_BREAK = "com.cj.tapblok.ACTION_START_BREAK"
         const val ACTION_END_BREAK = "com.cj.tapblok.ACTION_END_BREAK"
+        const val ACTION_START_MONITORING = "com.cj.tapblok.ACTION_START_MONITORING"
+        const val ACTION_STOP_MONITORING = "com.cj.tapblok.ACTION_STOP_MONITORING"
+        const val ACTION_START_TIMEOUT = "com.cj.tapblok.ACTION_START_TIMEOUT"
+        const val ACTION_END_TIMEOUT = "com.cj.tapblok.ACTION_END_TIMEOUT"
+        const val ACTION_ADD_EMERGENCY_BLOCK = "com.cj.tapblok.ACTION_ADD_EMERGENCY_BLOCK"
+        const val ACTION_RESTORE = "com.cj.tapblok.ACTION_RESTORE"
         const val EXTRA_BLOCKED_APP_PACKAGE_NAME = "BLOCKED_APP_PACKAGE_NAME"
         const val EXTRA_BLOCKED_GROUP_ID = "BLOCKED_GROUP_ID"
         const val EXTRA_BREAK_GROUP_ID = "BREAK_GROUP_ID"
+        const val EXTRA_EMERGENCY_PACKAGE = "EMERGENCY_PACKAGE"
+        const val EXTRA_BLOCK_MODE = "BLOCK_MODE"
+        const val BLOCK_MODE_NORMAL = "normal"
+        const val BLOCK_MODE_TIMEOUT = "timeout"
+        const val BLOCK_MODE_EMERGENCY = "emergency"
         private const val NO_GROUP_SENTINEL = Long.MIN_VALUE
+        private const val EMERGENCY_BLOCK_MS = 24L * 60L * 60_000L
         @Volatile var isRunning = false
+        @Volatile var isMonitoringActive = false
         @Volatile var isBreakActive = false
     }
 
@@ -64,29 +79,93 @@ class AppMonitoringService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_START_BREAK) {
-            val groupIdRaw = intent.getLongExtra(EXTRA_BREAK_GROUP_ID, NO_GROUP_SENTINEL)
-            val groupId = if (groupIdRaw == NO_GROUP_SENTINEL) null else groupIdRaw
-            startBreak(groupId)
-            return START_NOT_STICKY
-        }
-
-        if (intent?.action == ACTION_END_BREAK) {
-            if (isBreakActive) {
-                breakTimer?.cancel()
-                finishBreak()
+        when (intent?.action) {
+            ACTION_START_BREAK -> {
+                val groupIdRaw = intent.getLongExtra(EXTRA_BREAK_GROUP_ID, NO_GROUP_SENTINEL)
+                val groupId = if (groupIdRaw == NO_GROUP_SENTINEL) null else groupIdRaw
+                startBreak(groupId)
+                return START_NOT_STICKY
             }
-            return START_NOT_STICKY
+
+            ACTION_END_BREAK -> {
+                if (isBreakActive) {
+                    breakTimer?.cancel()
+                    finishBreak()
+                }
+                return START_NOT_STICKY
+            }
+
+            ACTION_STOP_MONITORING -> {
+                Log.d("AppMonitoringService", "Monitoring stopped (timeout/emergency may keep the service alive).")
+                isMonitoringActive = false
+                prefs.edit { putBoolean("monitoring_active", false) }
+                SessionSettings.clearAllGroupSessionState(this)
+                if (!stopIfNoReason()) ensureLoopStarted()
+                return START_STICKY
+            }
+
+            ACTION_START_TIMEOUT -> {
+                val endsAt = System.currentTimeMillis() + SessionSettings.timeoutDurationMs(this)
+                SessionSettings.setTimeoutEndsAtMs(this, endsAt)
+                Log.d("AppMonitoringService", "Timeout (re)started until $endsAt.")
+                ensureLoopStarted()
+                return START_STICKY
+            }
+
+            ACTION_END_TIMEOUT -> {
+                SessionSettings.setTimeoutEndsAtMs(this, 0L)
+                Log.d("AppMonitoringService", "Timeout ended.")
+                if (!stopIfNoReason()) ensureLoopStarted()
+                return START_STICKY
+            }
+
+            ACTION_ADD_EMERGENCY_BLOCK -> {
+                val pkg = intent.getStringExtra(EXTRA_EMERGENCY_PACKAGE)
+                if (pkg != null) {
+                    val expiresAt = System.currentTimeMillis() + EMERGENCY_BLOCK_MS
+                    // Optimistically register in memory so the poll loop's stopIfNoReason() check
+                    // sees an active block immediately — the DB insert + observer are async and
+                    // would otherwise let the service self-stop on the first tick when monitoring
+                    // is off. The observer reconciles this map shortly after.
+                    emergencyBlocks = emergencyBlocks + (pkg to expiresAt)
+                    serviceScope.launch {
+                        db.emergencyBlockDao().insert(EmergencyBlock(pkg, expiresAt))
+                    }
+                    Log.d("AppMonitoringService", "Emergency block added for $pkg until $expiresAt.")
+                }
+                ensureLoopStarted()
+                return START_STICKY
+            }
+
+            ACTION_START_MONITORING -> {
+                Log.d("AppMonitoringService", "Monitoring session started.")
+                prefs.edit {
+                    putInt("blocked_app_attempts", 0)
+                    putBoolean("monitoring_active", true)
+                }
+                isMonitoringActive = true
+                initSessionCounters()
+                ensureLoopStarted()
+                return START_STICKY
+            }
+
+            else -> {
+                // null intent (system restart after process death) or ACTION_RESTORE (boot):
+                // reconstruct enforcement state from what's persisted, without resetting counters.
+                isMonitoringActive = prefs.getBoolean("monitoring_active", false)
+                Log.d("AppMonitoringService", "Service restored (monitoring=$isMonitoringActive).")
+                ensureLoopStarted()
+                if (isMonitoringActive && SessionSettings.sessionStartedAtMs(this) == 0L) {
+                    initSessionCounters()
+                }
+                stopIfNoReason()
+                return START_STICKY
+            }
         }
+    }
 
-        Log.d("AppMonitoringService", "Service has started.")
-
-        prefs.edit {
-            putInt("blocked_app_attempts", 0)
-            putBoolean("monitoring_active", true)
-        }
-        initSessionCounters()
-
+    /** Build the foreground notification (idempotent) and start the DB observers + poll loop once. */
+    private fun ensureLoopStarted() {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -94,7 +173,6 @@ class AppMonitoringService : Service() {
             notificationIntent,
             PendingIntent.FLAG_IMMUTABLE
         )
-
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("TapBlok is Active")
             .setContentText("App monitoring and blocking is running.")
@@ -102,10 +180,9 @@ class AppMonitoringService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
-
         startForeground(NOTIFICATION_ID, notification)
 
-        if (isMonitoring) return START_STICKY
+        if (isMonitoring) return
         isMonitoring = true
 
         serviceScope.launch {
@@ -123,6 +200,13 @@ class AppMonitoringService : Service() {
         }
 
         serviceScope.launch {
+            db.emergencyBlockDao().observeAll().collect { list ->
+                emergencyBlocks = list.associate { it.packageName to it.expiresAtMs }
+                if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Emergency blocks updated: $emergencyBlocks")
+            }
+        }
+
+        serviceScope.launch {
             val localContext = this@AppMonitoringService
 
             while (isActive) {
@@ -132,44 +216,90 @@ class AppMonitoringService : Service() {
                     break
                 }
 
-                if (!isBreakActive) {
-                    val foreground = getForegroundInfo()
-                    val foregroundApp = foreground.packageName
-                    if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Foreground: $foregroundApp / ${foreground.className}")
+                val now = System.currentTimeMillis()
 
-                    if (foregroundApp != null && packageToGroupId.containsKey(foregroundApp) && foregroundApp != packageName) {
-                        val groupId = packageToGroupId[foregroundApp]
-                        if (groupId != null && !effectiveSettings(groupId).blockingEnabled) {
-                            if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Skipping block for $foregroundApp: group=$groupId disabled by time rule.")
-                            delay(1000)
-                            continue
-                        }
-                        val blockIntent = Intent(localContext, BlockingActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            putExtra(EXTRA_BLOCKED_APP_PACKAGE_NAME, foregroundApp)
-                            if (groupId != null) putExtra(EXTRA_BLOCKED_GROUP_ID, groupId)
-                        }
-                        startActivity(blockIntent)
-                        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Blocked app detected: $foregroundApp (group=$groupId)")
+                // Auto-expire a finished timeout.
+                if (SessionSettings.timeoutEndsAtMs(localContext) in 1..now) {
+                    SessionSettings.setTimeoutEndsAtMs(localContext, 0L)
+                }
+                // Purge expired emergency rows (the Flow will refresh the cached map).
+                if (emergencyBlocks.any { it.value <= now }) {
+                    serviceScope.launch { db.emergencyBlockDao().deleteExpired(now) }
+                }
+                // Nothing left to enforce → stop.
+                if (stopIfNoReason()) break
 
-                        val attempts = prefs.getInt("blocked_app_attempts", 0)
-                        prefs.edit {
-                            putInt("blocked_app_attempts", attempts + 1)
-                        }
-                    } else if (isDeviceAdminActive() && isUninstallPath(foreground)) {
-                        val home = Intent(Intent.ACTION_MAIN).apply {
-                            addCategory(Intent.CATEGORY_HOME)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        startActivity(home)
-                        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Uninstall path detected (${foreground.packageName}/${foreground.className}) — redirecting home.")
+                val foreground = getForegroundInfo()
+                val foregroundApp = foreground.packageName
+                if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Foreground: $foregroundApp / ${foreground.className}")
+
+                val timeoutActive = SessionSettings.timeoutActive(localContext, now)
+                val allowed = if (timeoutActive) {
+                    TimeoutPolicy.allowedPackages(packageToGroupId, SessionSettings.timeoutAllowedGroupId(localContext))
+                } else emptySet()
+
+                if (foregroundApp != null && foregroundApp != packageName &&
+                    TimeoutPolicy.isEmergencyBlocked(foregroundApp, emergencyBlocks, now)
+                ) {
+                    launchBlock(localContext, foregroundApp, groupId = null, mode = BLOCK_MODE_EMERGENCY)
+                } else if (timeoutActive &&
+                    TimeoutPolicy.shouldBlockInTimeout(foregroundApp, packageName, allowed, CriticalApps.PACKAGES)
+                ) {
+                    launchBlock(localContext, foregroundApp!!, groupId = null, mode = BLOCK_MODE_TIMEOUT)
+                } else if (isMonitoringActive && !isBreakActive &&
+                    foregroundApp != null && packageToGroupId.containsKey(foregroundApp) && foregroundApp != packageName
+                ) {
+                    val groupId = packageToGroupId[foregroundApp]
+                    if (TimeoutPolicy.isAlwaysAllowed(groupId, SessionSettings.timeoutAllowedGroupId(localContext))) {
+                        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Skipping block for $foregroundApp: in always-allowed Timeout group.")
+                        delay(1000)
+                        continue
                     }
+                    if (groupId != null && !effectiveSettings(groupId).blockingEnabled) {
+                        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Skipping block for $foregroundApp: group=$groupId disabled by time rule.")
+                        delay(1000)
+                        continue
+                    }
+                    launchBlock(localContext, foregroundApp, groupId, mode = BLOCK_MODE_NORMAL)
+                } else if (isMonitoringActive && isDeviceAdminActive() && isUninstallPath(foreground)) {
+                    // Anti-uninstall protection applies only to a normal monitoring session — not
+                    // when the service is alive purely for a Timeout or Emergency block.
+                    val home = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(home)
+                    if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Uninstall path detected (${foreground.packageName}/${foreground.className}) — redirecting home.")
                 }
                 delay(1000)
             }
         }
+    }
 
-        return START_STICKY
+    private fun launchBlock(context: Context, packageName: String, groupId: Long?, mode: String) {
+        val blockIntent = Intent(context, BlockingActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(EXTRA_BLOCKED_APP_PACKAGE_NAME, packageName)
+            putExtra(EXTRA_BLOCK_MODE, mode)
+            if (groupId != null) putExtra(EXTRA_BLOCKED_GROUP_ID, groupId)
+        }
+        startActivity(blockIntent)
+        if (BuildConfig.DEBUG) Log.d("AppMonitoringService", "Blocked $packageName (mode=$mode group=$groupId)")
+        val attempts = prefs.getInt("blocked_app_attempts", 0)
+        prefs.edit { putInt("blocked_app_attempts", attempts + 1) }
+    }
+
+    private fun hasActiveEmergency(nowMs: Long): Boolean = emergencyBlocks.any { it.value > nowMs }
+
+    /** Stop the service if no enforcement reason remains. Returns true if it stopped. */
+    private fun stopIfNoReason(): Boolean {
+        val now = System.currentTimeMillis()
+        if (!isMonitoringActive && !SessionSettings.timeoutActive(this, now) && !hasActiveEmergency(now)) {
+            Log.d("AppMonitoringService", "No enforcement reason left — stopping service.")
+            stopSelf()
+            return true
+        }
+        return false
     }
 
     /**
@@ -266,8 +396,11 @@ class AppMonitoringService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        isMonitoringActive = false
         prefs.edit { putBoolean("monitoring_active", false) }
+        SessionSettings.setTimeoutEndsAtMs(this, 0L)
         SessionSettings.clearAllGroupSessionState(this)
+        // Emergency blocks intentionally persist in the DB across service death (24h window).
         serviceScope.cancel()
         breakTimer?.cancel()
         Log.d("AppMonitoringService", "Service has been destroyed.")

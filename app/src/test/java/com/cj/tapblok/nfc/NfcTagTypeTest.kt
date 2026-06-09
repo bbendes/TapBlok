@@ -31,8 +31,21 @@ class NfcTagTypeTest {
     }
 
     @Test
+    fun `timeout payload parses as Timeout`() {
+        assertEquals(NfcTagType.Timeout, NfcTagType.parse("timeout"))
+    }
+
+    @Test
+    fun `emergency payload parses as Emergency`() {
+        assertEquals(NfcTagType.Emergency, NfcTagType.parse("emergency"))
+    }
+
+    @Test
     fun `payload roundtrip for non-legacy types`() {
         assertEquals(NfcTagType.StartOnly, NfcTagType.parse(NfcTagType.StartOnly.payload))
         assertEquals(NfcTagType.Toggle, NfcTagType.parse(NfcTagType.Toggle.payload))
+        assertEquals(NfcTagType.Break, NfcTagType.parse(NfcTagType.Break.payload))
+        assertEquals(NfcTagType.Timeout, NfcTagType.parse(NfcTagType.Timeout.payload))
+        assertEquals(NfcTagType.Emergency, NfcTagType.parse(NfcTagType.Emergency.payload))
     }
 }

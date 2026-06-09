@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.FreeBreakfast
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SyncAlt
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
@@ -177,6 +179,18 @@ private fun TagTypePicker(onSelect: (NfcTagType) -> Unit) {
             subtitle = "Starts a break during an active session. Hide somewhere mildly inconvenient.",
             onClick = { onSelect(NfcTagType.Break) }
         )
+        TagTypeCard(
+            icon = Icons.Default.Timer,
+            title = "Timeout",
+            subtitle = "Blocks everything except your allowed apps for a set time. Tap again to restart it.",
+            onClick = { onSelect(NfcTagType.Timeout) }
+        )
+        TagTypeCard(
+            icon = Icons.Default.Warning,
+            title = "Emergency",
+            subtitle = "Blocks whatever app you're in for the rest of the day — even when monitoring is off.",
+            onClick = { onSelect(NfcTagType.Emergency) }
+        )
     }
 }
 
@@ -258,6 +272,8 @@ private fun ReadyToWriteScreen(tagType: NfcTagType) {
                 NfcTagType.Toggle -> "Start & Stop tag"
                 NfcTagType.StartOnly -> "Start-only tag"
                 NfcTagType.Break -> "Break tag"
+                NfcTagType.Timeout -> "Timeout tag"
+                NfcTagType.Emergency -> "Emergency tag"
             },
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary

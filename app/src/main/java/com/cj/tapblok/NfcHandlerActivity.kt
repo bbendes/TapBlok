@@ -60,8 +60,13 @@ class NfcHandlerActivity : ComponentActivity() {
                         }
                     }
                     NfcTagType.Toggle -> {
-                        if (running) {
-                            stopService(Intent(this, AppMonitoringService::class.java))
+                        // While a Timeout is active, the Toggle tag ends Timeout (sanctioned early-exit)
+                        // and leaves the monitoring session untouched.
+                        if (SessionSettings.timeoutActive(this, System.currentTimeMillis())) {
+                            endTimeout(this)
+                            Toast.makeText(this, "Timeout ended.", Toast.LENGTH_SHORT).show()
+                        } else if (running) {
+                            stopMonitoring(this)
                             Toast.makeText(this, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
                         } else {
                             startMonitoringService(this)
@@ -77,6 +82,21 @@ class NfcHandlerActivity : ComponentActivity() {
                             Toast.makeText(this, "Break started.", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(this, "Start a session first.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    NfcTagType.Timeout -> {
+                        // Always (re)start a fresh full-duration Timeout. Does not change monitoring state.
+                        startTimeout(this)
+                        val minutes = SessionSettings.timeoutDurationMs(this) / 60_000L
+                        Toast.makeText(this, "Timeout mode started (${minutes} min).", Toast.LENGTH_SHORT).show()
+                    }
+                    NfcTagType.Emergency -> {
+                        val pkg = recentForegroundPackage(this)
+                        if (pkg != null && pkg != packageName && pkg !in CriticalApps.PACKAGES) {
+                            addEmergencyBlock(this, pkg)
+                            Toast.makeText(this, "Blocked $pkg for 24h.", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this, "No app to block.", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }

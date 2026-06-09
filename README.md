@@ -42,12 +42,14 @@
 
 ## ✨ Features
 
-- **🏷️ NFC Tag Support** — Write TapBlok's token to any NTAG213 tag (under $1 each). Tap to toggle a session.
+- **🏷️ NFC Tag Support** — Write TapBlok's token to any NTAG213 tag (under $1 each). Tap to toggle a session. Five tag types: Start & Stop, Start-only, Break, Timeout, and Emergency.
 - **📷 QR Code Support** — Generate a QR code in-app and print it. Hide it somewhere that requires real effort to reach.
 - **🔒 Block Any App** — Choose any launchable app on your device. Critical system apps (dialer, settings, launcher) are permanently excluded so you can't lock yourself out.
+- **⏳ Timeout Mode** — Tap a Timeout tag to block *everything* except the apps in your allowed group, for a duration you set. It runs alongside (and independent of) your normal session. Tap again to restart it; tap a Start & Stop tag to end it early.
+- **🚨 Emergency Tag** — Caught doom-scrolling a specific app? Tap an Emergency tag to block whatever app you're in for the rest of the day — even when no session is running. Each tap stacks another app.
 - **☕ Smart Breaks** — Take up to 3 five-minute breaks per session without ending it.
-- **🔁 Boot Persistence** — If your device restarts mid-session, TapBlok picks right back up.
-- **🚨 Emergency Override** — Lost your tag? A 90-second hold gives you a last resort exit — slow enough to stop impulse bypassing.
+- **🔁 Boot Persistence** — If your device restarts mid-session, TapBlok picks right back up — including active timeouts and emergency blocks.
+- **🆘 Last-Resort Exit** — Lost your tag? A 90-second hold gives you a slow escape hatch — slow enough to stop impulse bypassing.
 - **📊 Attempt Counter** — See how many times you tried to open a blocked app. Accountability you can't ignore.
 - **⚡ App Shortcut** — Long-press the TapBlok icon to start a session instantly.
 - **🔓 Open Source** — Every line of code is on GitHub. No black boxes, ever.
@@ -90,7 +92,7 @@ Built entirely in Kotlin using modern Android development practices.
 | `AppMonitoringService` | Foreground service — polls the foreground app every second, launches `BlockingActivity` on a match |
 | `BlockingActivity` | Full-screen overlay shown when a blocked app is detected |
 | `AppSelectionActivity` | Lets users pick which apps to block |
-| `NfcHandlerActivity` | Toggles the service when a TapBlok NFC tag is scanned |
+| `NfcHandlerActivity` | Routes a scanned TapBlok tag to the right action — toggle a session, start a break, (re)start Timeout mode, or add an Emergency block |
 | `NfcWriteActivity` | Writes TapBlok's NDEF record to an NFC tag |
 | `QrCodeActivity` | Generates and displays the unlock QR code |
 | `BootCompletedReceiver` | Restarts the service after device reboot if a session was active |

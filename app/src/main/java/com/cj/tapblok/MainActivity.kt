@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
@@ -101,7 +102,7 @@ fun MainScreen() {
     ) { result ->
         if (result.contents == QrCodeActivity.QR_CODE_CONTENT) {
             if (isServiceRunning) {
-                context.stopService(Intent(context, AppMonitoringService::class.java))
+                stopMonitoring(context)
                 Toast.makeText(context, "Monitoring stopped.", Toast.LENGTH_SHORT).show()
                 isServiceRunning = false
             } else {
@@ -141,7 +142,7 @@ fun MainScreen() {
             }
             if (isHolding) {
                 holdProgress = 1f
-                context.stopService(Intent(context, AppMonitoringService::class.java))
+                stopMonitoring(context)
                 isServiceRunning = false
             }
         } else {
@@ -272,6 +273,12 @@ fun MainScreen() {
                                     cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                 }
                             }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        ActionRow(
+                            icon = Icons.Default.Warning,
+                            label = "Emergency Blocks",
+                            onClick = { context.startActivity(Intent(context, EmergencyBlocksActivity::class.java)) }
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         ActionRow(
